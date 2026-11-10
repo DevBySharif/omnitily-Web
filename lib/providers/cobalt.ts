@@ -1,23 +1,81 @@
 import type { CobaltResponse, DownloadOptions, DownloadResult, Platform, SocialDownloadProvider } from './types.js';
 
 const COBALT_TIMEOUT_MS = 20_000;
+/**
+ * How long the wake-up probe may hang. Free-tier hosts (e.g. Render) sleep
+ * after ~15 min idle and take 30-60s to boot — far beyond Vercel's 30s
+ * function limit — so the probe must fail fast and let the caller tell the
+ * user to retry in a minute instead of burning the whole resolve budget.
+ */
+const COBALT_PROBE_TIMEOUT_MS = 5_000;
+
+export interface CobaltProviderOptions {
+  /** Test seam: override the wake-up probe timeout (default 5s). */
+  probeTimeoutMs?: number;
+  /** Test seam: override the resolve POST timeout (default 20s). */
+  timeoutMs?: number;
+}
 
 export class CobaltProvider implements SocialDownloadProvider {
   private apiUrl: string;
   private apiKey?: string;
+  private probeTimeoutMs: number;
+  private timeoutMs: number;
 
-  constructor(apiUrl: string, apiKey?: string) {
+  constructor(apiUrl: string, apiKey?: string, options: CobaltProviderOptions = {}) {
     this.apiUrl = apiUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
+    this.probeTimeoutMs = options.probeTimeoutMs ?? COBALT_PROBE_TIMEOUT_MS;
+    this.timeoutMs = options.timeoutMs ?? COBALT_TIMEOUT_MS;
   }
 
   isConfigured(): boolean {
     return Boolean(this.apiUrl);
   }
 
+  /**
+   * Cheap wake-up probe: GET the instance root (Cobalt answers instance
+   * info there). A timeout or 5xx means the host is still booting — the
+   * caller maps that to a "try again in a minute" message instead of
+   * waiting out the 20s POST timeout. A 4xx means the instance IS answering
+   * (auth/rate-limit surface through the POST instead). Any other network
+   * error (e.g. connection refused) means the host is unreachable, so the
+   * probe is skipped and the POST fails honestly as before.
+   */
+  private async isAwake(): Promise<boolean> {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (this.apiKey) {
+      headers['Authorization'] = `Api-Key ${this.apiKey}`;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.probeTimeoutMs);
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) return true;
+      // 4xx: the instance is up and answering — let the POST carry the error.
+      if (response.status >= 400 && response.status < 500) return true;
+      // 5xx (e.g. Render's proxy while the container boots): still waking.
+      return false;
+    } catch (error: unknown) {
+      clearTimeout(timeout);
+      if (error instanceof DOMException && error.name === 'AbortError') return false;
+      // Unreachable host — not a sleep, let the POST fail honestly.
+      return true;
+    }
+  }
+
   async resolve(platform: Platform, url: string, options?: DownloadOptions): Promise<DownloadResult> {
     if (!this.isConfigured()) {
       return { status: 'error', errorCode: 'PROVIDER_NOT_CONFIGURED' };
+    }
+
+    if (!(await this.isAwake())) {
+      return { status: 'error', errorCode: 'PROVIDER_WAKING' };
     }
 
     const headers: Record<string, string> = {
@@ -40,7 +98,7 @@ export class CobaltProvider implements SocialDownloadProvider {
     });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), COBALT_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
       const response = await fetch(this.apiUrl, {

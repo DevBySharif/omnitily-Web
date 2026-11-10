@@ -43,7 +43,7 @@ npm run verify:deployment -- --base-url=https://your-deployment.example
 - Audio transcription requires confirmation before audio is sent to the server and Google Gemini.
 - Production transcription accepts supported audio files up to 3 MiB; Vercel rejects function payloads above 4.5 MB before application code runs.
 - QR content is sent to the external QR rendering provider.
-- Social downloading is temporarily unavailable because its former unofficial resolver and arbitrary proxy design did not meet the server security policy.
+- Social downloading works for YouTube and TikTok without extra setup. Instagram and Facebook downloads need a configured Cobalt instance (free Render deploy — see `docs/COBALT_RENDER_DEPLOY.md`); until one is configured they answer honestly that the download server is not set up yet, instead of a fabricated link.
 
 See `docs/PRIVACY_PROCESSING_MATRIX.md`, `docs/TOOL_STATUS_POLICY.md`, and `docs/TESTING.md` for the complete policy and verification model.
 

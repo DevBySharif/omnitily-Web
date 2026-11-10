@@ -166,18 +166,23 @@ export interface ResolvedSocialMedia {
 }
 
 /**
- * Resolve a social-media URL to a downloadable stream using only the
- * config-free providers (YouTube InnerTube, yt-dlp when installed, tikwm,
- * public Cobalt race, YouTube oEmbed for metadata).
+ * Resolve a social-media URL to a downloadable stream. Config-free legs
+ * first (YouTube InnerTube, yt-dlp when installed, tikwm, public Cobalt
+ * race, YouTube oEmbed for metadata); when a Cobalt instance is configured
+ * (COBALT_API_URL, e.g. the Render free tier) it is tried before the public
+ * race — it is the only leg that can serve Instagram/Facebook, and the
+ * supported one for every platform.
  *
  * Honest failures: 400 for unsupported/non-HTTPS URLs, 429 when a provider
  * explicitly rate-limited the request, 422 when the link is private,
- * removed, or has no extractable stream. Never returns a fabricated URL.
+ * removed, or has no extractable stream, 503 when the configured instance
+ * is still waking up (free-tier sleep) or Instagram/Facebook was asked for
+ * with no instance configured. Never returns a fabricated URL.
  * NOTE: the link itself is only ever sent to the fixed provider hosts
  * below — the user-supplied URL is never fetched directly by this server
  * (no OG scrape), so it cannot be used as an SSRF relay.
  */
-async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundLookup?: OutboundLookup): Promise<ResolvedSocialMedia> {
+async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundLookup?: OutboundLookup, cobaltProvider?: CobaltProvider | null): Promise<ResolvedSocialMedia> {
   const platform = detectPlatform(rawUrl);
   if (!platform) {
     throw new ApiError(400, 'BAD_REQUEST', 'Only YouTube, TikTok, Instagram, and Facebook links are supported.');
@@ -307,6 +312,40 @@ async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundL
     } catch { /* tikwm failed, fall through to Cobalt */ }
   }
 
+  // 3.5 Configured Cobalt (self-hosted instance, e.g. Render free tier) —
+  //     the only leg that can serve Instagram/Facebook, and a fallback for
+  //     YouTube/TikTok once their config-free legs have had their chance.
+  //     It runs before the public race: our own instance is supported,
+  //     the public ones are best-effort and mostly dead/auth-gated.
+  //     A waking instance throws 503 (retry in a minute) instead of
+  //     falling through to a race that cannot help.
+  if (!videoUrl && cobaltProvider?.isConfigured()) {
+    const result = await cobaltProvider.resolve(platform, rawUrl, {
+      videoQuality: quality.kind === 'video' ? String(quality.maxHeight) : undefined,
+      downloadMode: quality.kind === 'audio' ? 'audio' : 'auto',
+    });
+    if (result.status === 'error') {
+      if (result.errorCode === 'PROVIDER_WAKING') {
+        throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'The download server is waking up after being idle (about a minute). Please try again in a moment.');
+      }
+      // Any other Cobalt failure falls through to the public race.
+    } else if ((result.status === 'tunnel' || result.status === 'redirect') && result.url) {
+      videoUrl = result.url;
+      if (!title && result.filename) title = result.filename.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      if (quality.kind === 'audio') qualityServed = 'audio';
+    } else if (result.status === 'picker' && result.items?.length) {
+      if (quality.kind === 'audio' && result.audioUrl) {
+        videoUrl = result.audioUrl;
+        if (!title && result.audioFilename) title = result.audioFilename;
+        qualityServed = 'audio';
+      } else {
+        const first = result.items.find((item) => item.type === 'video' && item.url) ?? result.items[0];
+        videoUrl = first.url;
+        if (!thumbnail && first.thumb) thumbnail = first.thumb;
+      }
+    }
+  }
+
   // 4. Cobalt race for stream URL (all platforms; audio mode for mp3 requests).
   if (!videoUrl) {
     const r = await tryPublicCobalt(rawUrl, quality.kind === 'audio' ? 'audio' : 'auto', outboundLookup);
@@ -342,6 +381,9 @@ async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundL
     }
     if (sawPrivate) {
       throw new ApiError(422, 'PROVIDER_ERROR', 'This video is private, removed, or unavailable.');
+    }
+    if ((platform === 'instagram' || platform === 'facebook') && !cobaltProvider?.isConfigured()) {
+      throw new ApiError(503, 'SERVICE_UNAVAILABLE', `${platformName} downloads need the download server, which is not configured yet.`);
     }
     if (quality.kind === 'audio') {
       throw new ApiError(422, 'PROVIDER_ERROR', 'Audio-only download is not available for this link. Try the video quality instead.');
@@ -392,6 +434,9 @@ function decodeAudio(body: unknown): { audio: string; mimeType: string } {
 export function createApp(options: { generateContent?: (audio: string, mimeType: string) => Promise<string>; providerTimeoutMs?: number; config?: AppConfig; rateLimitStore?: RateLimitStore; outboundLookup?: OutboundLookup } = {}) {
   const config = options.config ?? loadConfig();
   const outboundLookup = options.outboundLookup;
+  // The configured Cobalt instance (e.g. Render free tier) is built once
+  // and shared by /api/resolve-social and /api/download/*.
+  const cobaltProvider = config.cobaltApiUrl ? new CobaltProvider(config.cobaltApiUrl, config.cobaltApiKey) : null;
   const store = config.transcriptionEnabled ? options.rateLimitStore ?? (config.environment === 'production' && config.redisUrl && config.redisToken
     ? new UpstashRateLimitStore(config.redisUrl, config.redisToken)
     : new MemoryRateLimitStore()) : undefined;
@@ -465,7 +510,7 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
       }
       const { url, quality } = body;
       if (!url || typeof url !== 'string') throw new ApiError(400, 'BAD_REQUEST', "Missing 'url'.");
-      const resolved = await resolveSocialMedia(url, quality, outboundLookup);
+      const resolved = await resolveSocialMedia(url, quality, outboundLookup, cobaltProvider);
       res.json({ ...resolved, requestId: res.locals.requestId });
     } catch (error) { next(error instanceof ApiError ? error : new ApiError(502, 'PROVIDER_ERROR', 'The resolver could not process this request.')); }
   });
@@ -561,8 +606,6 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
     }
   });
 
-  const cobaltProvider = config.cobaltApiUrl ? new CobaltProvider(config.cobaltApiUrl, config.cobaltApiKey) : null;
-
   const downloadParser = express.json({ limit: '16kb', strict: true });
   const PLATFORMS: Platform[] = ['youtube', 'instagram', 'tiktok', 'facebook'];
 
@@ -597,6 +640,9 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
           // "unsupported link" must not read as a server bug.
           if (code === 'PROVIDER_NOT_CONFIGURED') {
             throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Social download service is not configured.');
+          }
+          if (code === 'PROVIDER_WAKING') {
+            throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'The download server is waking up after being idle (about a minute). Please try again in a moment.');
           }
           if (code === 'PROVIDER_TIMEOUT') {
             throw new ApiError(504, 'PROVIDER_TIMEOUT', 'The download provider timed out. Try again in a moment.');

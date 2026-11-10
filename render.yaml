@@ -1,0 +1,50 @@
+# Render Blueprint for the Omnitily Cobalt instance (free tier).
+#
+# How to use it (full steps in docs/COBALT_RENDER_DEPLOY.md):
+#   1. In the Render dashboard: New + -> Blueprint -> pick the omnitily-Web repo.
+#   2. Render prompts for COBALT_API_KEY — paste a random UUID (generate one
+#      with `uuidgen` or any online UUID generator). Never commit a real key.
+#   3. Deploy. The service URL becomes https://omnitily-cobalt.onrender.com
+#      (or whatever name you chose) — that URL goes into Vercel as
+#      COBALT_API_URL, with the same key as COBALT_API_KEY.
+#
+# Free-tier facts (verified Sep 2026): 512 MB RAM (Cobalt needs 256 MB min),
+# 750 instance-hours/month, no card required, sleeps after 15 min idle
+# (first request after sleep takes ~60s to wake — the app detects this and
+# tells the user to retry), 5 GB bandwidth/month. Cobalt usually returns
+# redirect URLs, so video bytes flow straight from the CDN, not through
+# Render; tunnel downloads do count against the 5 GB.
+
+services:
+  - type: web
+    name: omnitily-cobalt
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: cobalt/Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      # Render injects $PORT (default 10000) and $RENDER_EXTERNAL_URL; the
+      # entrypoint script reads both, so these are fallbacks only.
+      - key: API_PORT
+        value: 10000
+      # Only allow the Omnitily site to call this instance from a browser.
+      - key: CORS_WILDCARD
+        value: "0"
+      - key: CORS_URL
+        value: https://omnitily.vercel.app
+      # Keep downloads short and abuse-bounded on the free tier.
+      - key: DURATION_LIMIT
+        value: 10800
+      - key: RATELIMIT_WINDOW
+        value: 60
+      - key: RATELIMIT_MAX
+        value: 20
+      - key: TUNNEL_LIFESPAN
+        value: 120
+      # The API key itself: prompted at Blueprint deploy time (sync: false),
+      # stored only in Render, never in the repo. The entrypoint writes it
+      # to keys.json and turns on API_AUTH_REQUIRED.
+      - key: COBALT_API_KEY
+        sync: false

@@ -2,6 +2,12 @@
 
 **For Omnitily's social downloader integration.**
 
+> **Easiest path first:** you do not need a VPS. The repo ships a Render
+> Blueprint (`render.yaml` + `cobalt/`) that runs Cobalt on Render's free
+> tier ($0, no card) — see **`docs/COBALT_RENDER_DEPLOY.md`** for the
+> step-by-step. The guide below is for running the same instance on your
+> own server instead.
+
 ---
 
 ## Overview

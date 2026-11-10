@@ -147,7 +147,7 @@ function failingFetchHandler(url: string) {
 
 // ── /api/resolve-social ────────────────────────────────────────────────────
 
-describe('resolve-social (config-free resolver)', () => {
+describe('resolve-social (resolver)', () => {
   it('rejects a non-platform URL with 400 and never fetches it', async () => {
     const res = await request(createApp({ config: NO_COBALT_CONFIG }))
       .post('/api/resolve-social')
@@ -346,7 +346,7 @@ describe('resolve-social (config-free resolver)', () => {
     expect(res.body.error.message).toMatch(/Audio-only download is not available/);
   });
 
-  it('returns 422 for Instagram/Facebook (no config-free video leg) and never fetches the user URL', async () => {
+  it('returns 503 for Instagram/Facebook when no instance is configured, and never fetches the user URL', async () => {
     fetchHandler = failingFetchHandler;
     const app = () => createApp({ config: NO_COBALT_CONFIG });
     for (const url of [IG_URL, FB_URL]) {
@@ -354,8 +354,9 @@ describe('resolve-social (config-free resolver)', () => {
         .post('/api/resolve-social')
         .set('Content-Type', 'application/json')
         .send({ url });
-      expect(res.status).toBe(422);
-      expect(res.body.error.message).toMatch(/Could not extract a stream URL/);
+      expect(res.status).toBe(503);
+      expect(res.body.error.code).toBe('SERVICE_UNAVAILABLE');
+      expect(res.body.error.message).toMatch(/download server/i);
     }
     expect(fetchCalls.some((c) => c.url.includes('instagram.com'))).toBe(false);
     expect(fetchCalls.some((c) => c.url.includes('facebook.com'))).toBe(false);
@@ -385,6 +386,126 @@ describe('resolve-social (config-free resolver)', () => {
       .send({ url: YT_URL });
     expect(res.status).toBe(422);
     expect(res.body.videoUrl).toBeUndefined();
+  });
+});
+
+// ── resolve-social with a configured Cobalt instance (Render free tier) ─────
+
+describe('resolve-social with a configured Cobalt instance', () => {
+  /** Stub the instance: GET / answers instance info, POST answers `postBody`. */
+  function cobaltInstanceHandler(postBody: unknown) {
+    return (url: string, init?: unknown) => {
+      const method = (init as { method?: string } | undefined)?.method ?? 'GET';
+      if (url.includes('cobalt.example')) {
+        if (method === 'GET') return jsonResponse(200, { cobalt: { version: '11.0.0', api: 10 } });
+        return jsonResponse(200, postBody);
+      }
+      return failingFetchHandler(url);
+    };
+  }
+
+  it('resolves Instagram via the configured instance (first leg for IG/FB)', async () => {
+    fetchHandler = cobaltInstanceHandler({ status: 'tunnel', url: 'https://cdn.example/ig.mp4', filename: 'my-reel.mp4' });
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/resolve-social')
+      .set('Content-Type', 'application/json')
+      .send({ url: IG_URL });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      videoUrl: 'https://cdn.example/ig.mp4',
+      title: 'my reel',
+      platform: 'Instagram',
+    });
+  });
+
+  it('resolves Facebook via the configured instance picker (first video item)', async () => {
+    fetchHandler = cobaltInstanceHandler({
+      status: 'picker',
+      picker: [
+        { type: 'video', url: 'https://cdn.example/fb.mp4', thumb: 'https://cdn.example/fb.jpg' },
+        { type: 'photo', url: 'https://cdn.example/fb.jpg' },
+      ],
+    });
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/resolve-social')
+      .set('Content-Type', 'application/json')
+      .send({ url: FB_URL });
+    expect(res.status).toBe(200);
+    expect(res.body.videoUrl).toBe('https://cdn.example/fb.mp4');
+    expect(res.body.thumbnail).toBe('https://cdn.example/fb.jpg');
+    expect(res.body.platform).toBe('Facebook');
+  });
+
+  it('uses the configured instance as a YouTube fallback after the config-free legs fail', async () => {
+    fetchHandler = (url, init) => {
+      if (url.includes('youtubei/v1/player')) return jsonResponse(500, {});
+      if (url.includes('oembed')) return jsonResponse(404, {});
+      return cobaltInstanceHandler({ status: 'tunnel', url: 'https://cdn.example/yt.mp4', filename: 'yt-video.mp4' })(url, init);
+    };
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/resolve-social')
+      .set('Content-Type', 'application/json')
+      .send({ url: YT_URL });
+    expect(res.status).toBe(200);
+    expect(res.body.videoUrl).toBe('https://cdn.example/yt.mp4');
+    expect(res.body.platform).toBe('YouTube');
+  });
+
+  it('serves Instagram mp3 through the configured instance in audio mode', async () => {
+    let cobaltBody = '';
+    fetchHandler = (url, init) => {
+      const method = (init as { method?: string } | undefined)?.method ?? 'GET';
+      if (url.includes('cobalt.example')) {
+        if (method === 'GET') return jsonResponse(200, { cobalt: { version: '11.0.0', api: 10 } });
+        cobaltBody = String((init as { body?: unknown } | undefined)?.body ?? '');
+        return jsonResponse(200, { status: 'tunnel', url: 'https://cdn.example/audio.mp3', filename: 'audio.mp3' });
+      }
+      return failingFetchHandler(url);
+    };
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/resolve-social')
+      .set('Content-Type', 'application/json')
+      .send({ url: IG_URL, quality: 'mp3' });
+    expect(res.status).toBe(200);
+    expect(res.body.videoUrl).toBe('https://cdn.example/audio.mp3');
+    expect(res.body.qualityServed).toBe('audio');
+    expect(JSON.parse(cobaltBody).downloadMode).toBe('audio');
+  });
+
+  it('returns 503 with a retry-in-a-minute message when the instance is waking up', async () => {
+    fetchHandler = (url, init) => {
+      const method = (init as { method?: string } | undefined)?.method ?? 'GET';
+      if (url.includes('cobalt.example')) {
+        if (method === 'GET') return jsonResponse(502, {});
+        throw new Error('POST must not be called while the instance is booting');
+      }
+      return failingFetchHandler(url);
+    };
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/resolve-social')
+      .set('Content-Type', 'application/json')
+      .send({ url: IG_URL });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('SERVICE_UNAVAILABLE');
+    expect(res.body.error.message).toMatch(/waking up/i);
+  });
+
+  it('maps a waking instance to 503 (not 502) on /api/download/instagram', async () => {
+    fetchHandler = (url, init) => {
+      const method = (init as { method?: string } | undefined)?.method ?? 'GET';
+      if (url.includes('cobalt.example')) {
+        if (method === 'GET') return jsonResponse(502, {});
+        throw new Error('POST must not be called while the instance is booting');
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const res = await request(createApp({ config: TEST_CONFIG }))
+      .post('/api/download/instagram')
+      .set('Content-Type', 'application/json')
+      .send({ url: IG_URL });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('SERVICE_UNAVAILABLE');
+    expect(res.body.error.message).toMatch(/waking up/i);
   });
 });
 
