@@ -31,6 +31,7 @@ const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     validate: (url) => {
       try {
         const u = new URL(url);
+        if (u.protocol !== 'https:') return 'Only HTTPS URLs are supported.';
         const h = u.hostname.replace('www.', '');
         if (h !== 'youtube.com' && h !== 'youtu.be' && h !== 'm.youtube.com' && h !== 'music.youtube.com') return 'Please enter a valid YouTube URL.';
       } catch { return 'Invalid URL format.'; }
@@ -46,6 +47,7 @@ const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     validate: (url) => {
       try {
         const u = new URL(url);
+        if (u.protocol !== 'https:') return 'Only HTTPS URLs are supported.';
         const h = u.hostname.replace('www.', '');
         if (h !== 'instagram.com') return 'Please enter a valid Instagram URL.';
         if (!/^\/(p|reel|reels|tv|stories)\//.test(u.pathname)) return 'Please enter an Instagram post, reel, or story URL.';
@@ -62,6 +64,7 @@ const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     validate: (url) => {
       try {
         const u = new URL(url);
+        if (u.protocol !== 'https:') return 'Only HTTPS URLs are supported.';
         const h = u.hostname.replace('www.', '');
         if (h !== 'tiktok.com' && h !== 'vm.tiktok.com' && h !== 'vt.tiktok.com') return 'Please enter a valid TikTok URL.';
       } catch { return 'Invalid URL format.'; }
@@ -77,6 +80,7 @@ const PLATFORM_CONFIGS: Record<Platform, PlatformConfig> = {
     validate: (url) => {
       try {
         const u = new URL(url);
+        if (u.protocol !== 'https:') return 'Only HTTPS URLs are supported.';
         const h = u.hostname.replace('www.', '').replace('web.', '').replace('m.', '');
         if (h !== 'facebook.com' && h !== 'fb.watch') return 'Please enter a valid Facebook URL.';
       } catch { return 'Invalid URL format.'; }
@@ -106,10 +110,18 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
   const [error, setError] = useState('');
   const [resolvedUrl, setResolvedUrl] = useState('');
   const [resolvedFilename, setResolvedFilename] = useState('');
+  const [resolvedTitle, setResolvedTitle] = useState('');
+  const [resolvedThumbnail, setResolvedThumbnail] = useState('');
+  const [resolvedDuration, setResolvedDuration] = useState('');
   const [pickerItems, setPickerItems] = useState<ResolvedItem[]>([]);
   const [pickerAudio, setPickerAudio] = useState('');
   const [pickerAudioFilename, setPickerAudioFilename] = useState('');
-  const [isDownloading, setIsDownloading] = useState(false);
+  // Real download state: progress is bound to bytes actually received from
+  // /api/media-proxy (see handleDownload). null = not downloading.
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [downloadLabel, setDownloadLabel] = useState('');
+  const [downloadDone, setDownloadDone] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const reset = useCallback(() => {
     setUrl('');
@@ -117,10 +129,25 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
     setError('');
     setResolvedUrl('');
     setResolvedFilename('');
+    setResolvedTitle('');
+    setResolvedThumbnail('');
+    setResolvedDuration('');
     setPickerItems([]);
     setPickerAudio('');
     setPickerAudioFilename('');
-    setIsDownloading(false);
+    setDownloadProgress(null);
+    setDownloadLabel('');
+    setDownloadDone(false);
+    setDownloadError('');
+  }, []);
+
+  const readErrorMessage = useCallback(async (response: Response, fallback: string): Promise<string> => {
+    try {
+      const data = await response.json();
+      if (data?.error?.message) return data.error.message as string;
+      if (typeof data?.error === 'string') return data.error;
+    } catch { /* non-JSON error body */ }
+    return fallback;
   }, []);
 
   const handleResolve = useCallback(async () => {
@@ -136,6 +163,8 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
 
     setStatus('resolving');
     setError('');
+    setDownloadDone(false);
+    setDownloadError('');
 
     try {
       const response = await fetch(`/api/download/${platform}`, {
@@ -144,15 +173,46 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
         body: JSON.stringify({ url: trimmed }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || `Server error (${response.status})`);
+      // The per-platform endpoint needs the self-hosted Cobalt backend. In
+      // the zero-cost deployment that backend is not configured, so the
+      // server answers 503 — and only then do we fall back to the
+      // config-free resolver (/api/resolve-social). Any other failure
+      // (400/422/429/502) is a real answer about this link and is shown
+      // as-is instead of being masked by a second attempt.
+      if (response.status === 503) {
+        const fallback = await fetch('/api/resolve-social', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: trimmed }),
+        });
+        if (!fallback.ok) {
+          throw new Error(await readErrorMessage(fallback, `Server error (${fallback.status})`));
+        }
+        const d = await fallback.json();
+        if (!d.videoUrl) throw new Error('Unexpected response from resolver.');
+        setResolvedUrl(d.videoUrl);
+        setResolvedTitle(d.title || '');
+        setResolvedThumbnail(d.thumbnail || '');
+        setResolvedDuration(d.duration || '');
+        setResolvedFilename(d.title ? `${String(d.title).replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_').slice(0, 60)}` : 'download');
+        setPickerItems([]);
+        setStatus('ready');
+        return;
       }
 
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, `Server error (${response.status})`));
+      }
+
+      const data = await response.json();
+
       if (data.status === 'tunnel' || data.status === 'redirect') {
+        if (!data.url) throw new Error('Unexpected response from provider.');
         setResolvedUrl(data.url);
         setResolvedFilename(data.filename || 'download');
+        setResolvedTitle('');
+        setResolvedThumbnail('');
+        setResolvedDuration('');
         setStatus('ready');
       } else if (data.status === 'picker') {
         setPickerItems(data.items || []);
@@ -167,22 +227,54 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
       setError(message);
       setStatus('error');
     }
-  }, [url, platform, config]);
+  }, [url, platform, config, readErrorMessage]);
 
-  const handleDownload = useCallback((downloadUrl: string, filename: string) => {
-    setIsDownloading(true);
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = filename;
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => setIsDownloading(false), 2000);
-  }, []);
+  const handleDownload = useCallback(async (downloadUrl: string, filename: string) => {
+    if (!downloadUrl || downloadProgress !== null) return;
+    setDownloadError('');
+    setDownloadDone(false);
+    setDownloadLabel(filename);
+    setDownloadProgress(0);
+    try {
+      const proxyUrl = `/api/media-proxy?url=${encodeURIComponent(downloadUrl)}&filename=${encodeURIComponent(filename)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, `Download failed (${response.status}).`));
+      }
+      const contentLength = Number(response.headers.get('Content-Length') || 0);
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Download stream not available.');
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        if (contentLength > 0) setDownloadProgress(Math.round((received / contentLength) * 100));
+        else setDownloadProgress(Math.min(95, Math.round(received / 1048576) * 2));
+      }
+      setDownloadProgress(100);
+      const blob = new Blob(chunks, { type: response.headers.get('Content-Type') || undefined });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      setDownloadDone(true);
+    } catch (err: unknown) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed — check your connection and try again.');
+    } finally {
+      setDownloadProgress(null);
+    }
+  }, [downloadProgress, readErrorMessage]);
 
   const handleDownloadDirect = useCallback(() => {
-    if (resolvedUrl) handleDownload(resolvedUrl, resolvedFilename);
+    if (resolvedUrl) void handleDownload(resolvedUrl, resolvedFilename);
   }, [resolvedUrl, resolvedFilename, handleDownload]);
 
   return (
@@ -196,7 +288,7 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
             {icon} {config.name} Downloader
           </h1>
           <p className="text-zinc-400 text-sm mt-1">{description}</p>
-          <p className="mt-2 text-xs text-amber-300">Submitted URLs are sent to Omnitily&apos;s server, which contacts the Cobalt download provider. Only public content is supported.</p>
+          <p className="mt-2 text-xs text-amber-300">Submitted URLs are sent to Omnitily&apos;s server, which resolves them via the Cobalt download provider or the built-in resolvers. Only public content is supported.</p>
         </div>
       </div>
 
@@ -211,13 +303,13 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
                 value={url}
                 onChange={(e) => { setUrl(e.target.value); if (status === 'error') setStatus('idle'); }}
                 onKeyDown={(e) => e.key === 'Enter' && handleResolve()}
-                disabled={status === 'resolving' || isDownloading}
+                disabled={status === 'resolving' || downloadProgress !== null}
                 className="w-full py-3.5 text-sm focus:outline-none bg-transparent text-white placeholder-zinc-500"
               />
             </div>
             <button
               onClick={handleResolve}
-              disabled={!url.trim() || status === 'resolving' || isDownloading}
+              disabled={!url.trim() || status === 'resolving' || downloadProgress !== null}
               className="py-3 px-8 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-widest transition-all cursor-pointer shrink-0 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed flex items-center justify-center gap-2 rounded-md sm:rounded-none sm:rounded-r-md m-0.5 sm:m-0"
             >
               {status === 'resolving'
@@ -251,7 +343,7 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
         </div>
 
         <AnimatePresence>
-          {status === 'ready' && !isDownloading && (
+          {status === 'ready' && (
             <motion.div key="result" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="border border-zinc-800/80 bg-[#0d0d0f] rounded-xl overflow-hidden shadow-2xl max-w-3xl mx-auto w-full">
 
@@ -264,8 +356,9 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {pickerItems.map((item, i) => (
-                      <button key={i} onClick={() => handleDownload(item.url, `${platform}-download-${i + 1}`)}
-                        className="group bg-zinc-900/50 border border-zinc-800/80 hover:border-emerald-500/50 rounded-lg p-3 flex flex-col gap-2 transition-all cursor-pointer">
+                      <button key={i} onClick={() => void handleDownload(item.url, `${platform}-download-${i + 1}`)}
+                        disabled={downloadProgress !== null}
+                        className="group bg-zinc-900/50 border border-zinc-800/80 hover:border-emerald-500/50 rounded-lg p-3 flex flex-col gap-2 transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
                         {item.thumb
                           ? <img src={item.thumb} alt="" className="w-full aspect-video object-cover rounded" referrerPolicy="no-referrer" />
                           : <div className="w-full aspect-video bg-zinc-800 rounded flex items-center justify-center">
@@ -277,24 +370,86 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
                     ))}
                   </div>
                   {pickerAudio && (
-                    <button onClick={() => handleDownload(pickerAudio, pickerAudioFilename || `${platform}-audio.mp3`)}
-                      className="mt-3 w-full py-2.5 bg-zinc-900/50 border border-zinc-800/80 hover:border-emerald-500/50 rounded-lg text-xs font-semibold text-zinc-400 hover:text-emerald-400 transition-all cursor-pointer flex items-center justify-center gap-2">
+                    <button onClick={() => void handleDownload(pickerAudio, pickerAudioFilename || `${platform}-audio.mp3`)}
+                      disabled={downloadProgress !== null}
+                      className="mt-3 w-full py-2.5 bg-zinc-900/50 border border-zinc-800/80 hover:border-emerald-500/50 rounded-lg text-xs font-semibold text-zinc-400 hover:text-emerald-400 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
                       <Download className="w-3.5 h-3.5" /> Download Audio
                     </button>
                   )}
                 </div>
               ) : (
-                <div className="p-5 flex items-center gap-4">
-                  <div className="flex-1">
-                    <span className="text-[9px] font-bold uppercase tracking-widest bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/25">
-                      {config.name} · Stream Resolved
-                    </span>
-                    <p className="text-xs text-zinc-400 mt-2 font-mono break-all">{resolvedFilename}</p>
+                <div className="p-5 flex flex-col gap-4">
+                  <div className="flex items-center gap-4">
+                    {resolvedThumbnail && (
+                      <img src={resolvedThumbnail} alt="" className="w-28 aspect-video object-cover rounded shrink-0" referrerPolicy="no-referrer" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[9px] font-bold uppercase tracking-widest bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/25">
+                        {config.name} · Stream Resolved
+                      </span>
+                      {resolvedTitle && <p className="text-sm font-bold text-white mt-2 leading-snug line-clamp-2">{resolvedTitle}</p>}
+                      <p className="text-xs text-zinc-400 mt-1 font-mono break-all">{resolvedFilename}</p>
+                      {resolvedDuration && resolvedDuration !== '00:00' && (
+                        <p className="text-[11px] text-zinc-500 mt-1 font-mono">Duration {resolvedDuration}</p>
+                      )}
+                    </div>
+                    <button onClick={handleDownloadDirect}
+                      disabled={downloadProgress !== null}
+                      className="py-3 px-6 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all shrink-0 disabled:bg-zinc-800 disabled:text-zinc-600 disabled:cursor-not-allowed">
+                      <Download className="w-4 h-4" /> Download
+                    </button>
                   </div>
-                  <button onClick={handleDownloadDirect}
-                    className="py-3 px-6 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all shrink-0">
-                    <Download className="w-4 h-4" /> Download
-                  </button>
+                  {downloadProgress !== null && (
+                    <div className="flex flex-col gap-2 w-full">
+                      <div className="flex justify-between text-xs font-semibold text-emerald-400">
+                        <span className="flex items-center gap-1.5"><ArrowsCounterClockwise className="w-3.5 h-3.5 animate-spin" /> Downloading {downloadLabel}…</span>
+                        <span className="font-mono">{Math.round(downloadProgress)}%</span>
+                      </div>
+                      <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-emerald-500 h-full transition-all duration-300 ease-out" style={{ width: `${downloadProgress}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  {downloadDone && (
+                    <div className="bg-emerald-950/20 text-emerald-300 rounded-lg p-3 text-xs flex items-center gap-2 border border-emerald-500/20">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="font-medium">Download started! Check your browser&apos;s download folder.</span>
+                    </div>
+                  )}
+                  {downloadError && (
+                    <div className="bg-red-950/20 text-red-300 rounded-lg p-3 text-xs flex items-start gap-2 border border-red-900/40">
+                      <WarningCircle className="w-4 h-4 text-red-400 shrink-0 mt-px" />
+                      <span className="leading-relaxed">Download failed: {downloadError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {downloadProgress !== null && pickerItems.length > 0 && (
+                <div className="px-5 pb-4 flex flex-col gap-2 w-full">
+                  <div className="flex justify-between text-xs font-semibold text-emerald-400">
+                    <span className="flex items-center gap-1.5"><ArrowsCounterClockwise className="w-3.5 h-3.5 animate-spin" /> Downloading {downloadLabel}…</span>
+                    <span className="font-mono">{Math.round(downloadProgress)}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-emerald-500 h-full transition-all duration-300 ease-out" style={{ width: `${downloadProgress}%` }} />
+                  </div>
+                </div>
+              )}
+              {downloadDone && pickerItems.length > 0 && (
+                <div className="px-5 pb-4">
+                  <div className="bg-emerald-950/20 text-emerald-300 rounded-lg p-3 text-xs flex items-center gap-2 border border-emerald-500/20">
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="font-medium">Download started! Check your browser&apos;s download folder.</span>
+                  </div>
+                </div>
+              )}
+              {downloadError && pickerItems.length > 0 && (
+                <div className="px-5 pb-4">
+                  <div className="bg-red-950/20 text-red-300 rounded-lg p-3 text-xs flex items-start gap-2 border border-red-900/40">
+                    <WarningCircle className="w-4 h-4 text-red-400 shrink-0 mt-px" />
+                    <span className="leading-relaxed">Download failed: {downloadError}</span>
+                  </div>
                 </div>
               )}
 
@@ -314,8 +469,11 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
         <div className="bg-[#0d0d0f] border border-zinc-800/80 rounded-xl p-5 max-w-3xl mx-auto w-full">
           <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Supported {config.name} URLs</h3>
           <ul className="text-[11px] text-zinc-400 space-y-1.5 leading-relaxed">
-            <li>• Standard videos: youtube.com/watch?v=..., youtu.be/...</li>
-            {platform === 'youtube' && <li>• Shorts: youtube.com/shorts/...</li>}
+            <li>• Paste any supported public {config.name} link (formats below)</li>
+            {platform === 'youtube' && <>
+              <li>• Standard videos: youtube.com/watch?v=..., youtu.be/...</li>
+              <li>• Shorts: youtube.com/shorts/...</li>
+            </>}
             {platform === 'instagram' && <>
               <li>• Posts: instagram.com/p/...</li>
               <li>• Reels: instagram.com/reel/...</li>

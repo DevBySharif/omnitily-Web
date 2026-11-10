@@ -14,14 +14,14 @@ describe('unavailable-route regressions', () => {
   });
 
   it('coming-soon routes cannot start progress or produce output', () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['video-compressor']} onBack={() => undefined} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['image-cropper']} onBack={() => undefined} />);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByText(/success|completed|result/i)).not.toBeInTheDocument();
   });
 
   it('back navigation remains available on unavailable routes', () => {
     const back = vi.fn();
-    render(<ToolWorkspace tool={TOOL_BY_ID['video-splitter']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['audio-transcriber']} onBack={back} />);
     fireEvent.click(screen.getByRole('button', { name: /back to catalog/i }));
     expect(back).toHaveBeenCalledOnce();
   });

@@ -6,14 +6,40 @@ import { clientIp, hashIdentity } from '../lib/security/clientIdentity.js';
 import { MemoryRateLimitStore, UpstashRateLimitStore, createRateLimitMiddleware, type RateLimitStore } from '../lib/security/rateLimit.js';
 import { loadConfig, requireProductionLimiter, type AppConfig } from '../lib/config.js';
 import { CobaltProvider } from '../lib/providers/cobalt.js';
-import { validatePlatformUrl } from '../lib/providers/platforms.js';
-import { validateOutboundUrl } from '../lib/security/outbound.js';
+import { detectPlatform, validatePlatformUrl } from '../lib/providers/platforms.js';
+import { validateOutboundUrl, type OutboundLookup } from '../lib/security/outbound.js';
 import type { Platform } from '../lib/providers/types.js';
 
 export const AUDIO_MAX_BYTES = 3 * 1024 * 1024;
 export const BODY_LIMIT = '4.25mb';
 const PROVIDER_TIMEOUT_MS = 20_000;
 const AUDIO_MIME = new Set(['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/aac', 'audio/flac']);
+/** Hard cap on bytes relayed by /api/media-proxy (bandwidth-amplification bound). */
+const MAX_PROXY_BYTES = 512 * 1024 * 1024;
+
+const EXT_BY_MIME: Record<string, string> = {
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-matroska': 'mkv',
+  'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/webm': 'webm', 'audio/ogg': 'ogg',
+  'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/flac': 'flac', 'audio/opus': 'opus',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+  'application/octet-stream': 'mp4',
+};
+const KNOWN_MEDIA_EXTS = new Set(['mp4', 'webm', 'mov', 'mkv', 'mp3', 'm4a', 'ogg', 'wav', 'flac', 'opus', 'jpg', 'jpeg', 'png', 'gif', 'webp']);
+
+/**
+ * Build the download filename for /api/media-proxy. The extension always
+ * comes from the upstream Content-Type, and a trailing known extension on
+ * the requested name is stripped first — previously the handler blindly
+ * appended ".mp4", so "clip.mp4" downloaded as "clip.mp4.mp4" and a photo
+ * picked from a Cobalt picker downloaded as a ".mp4".
+ */
+function proxyFilename(raw: string | undefined, mime: string): string {
+  const safe = (raw || 'video').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const dot = safe.lastIndexOf('.');
+  const base = dot > 0 && KNOWN_MEDIA_EXTS.has(safe.slice(dot + 1).toLowerCase()) ? safe.slice(0, dot) : safe;
+  const ext = EXT_BY_MIME[mime] || 'mp4';
+  return `${base || 'video'}.${ext}`;
+}
 
 const PROXY_URL = process.env.PROXY_URL || '';
 const ytDispatcher = PROXY_URL ? new ProxyAgent(PROXY_URL) : undefined;
@@ -23,12 +49,12 @@ async function ytFetch(input: string | URL, init: RequestInit = {}): Promise<glo
   return fetch(input, init);
 }
 
-async function resolveWithYtdlp(targetUrl: string, maxDuration = 600): Promise<{ videoUrl: string; title: string; thumbnail: string; duration: string } | null> {
+async function resolveWithYtdlp(targetUrl: string, format: string, maxDuration = 600): Promise<{ videoUrl: string; title: string; thumbnail: string; duration: string } | null> {
   return new Promise((resolve) => {
     const timeout = setTimeout(() => { try { child.kill(); } catch { /* already exited */ } resolve(null); }, 25_000);
     const child = execFile('yt-dlp', [
       '-j', '--no-download', '--no-update', '--no-warnings',
-      '--format', 'best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best',
+      '--format', format,
       '--no-playlist', '--socket-timeout', '15',
       targetUrl,
     ], { timeout: 20_000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
@@ -39,7 +65,7 @@ async function resolveWithYtdlp(targetUrl: string, maxDuration = 600): Promise<{
         const videoUrl = info.url as string;
         if (!videoUrl) { resolve(null); return; }
         const secs = typeof info.duration === 'number' ? Math.floor(info.duration) : 0;
-        const duration = secs ? `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}` : '00:00';
+        const duration = formatDuration(secs);
         resolve({
           videoUrl,
           title: (info.title as string) || '',
@@ -50,6 +76,284 @@ async function resolveWithYtdlp(targetUrl: string, maxDuration = 600): Promise<{
     });
     child.on('error', () => { clearTimeout(timeout); resolve(null); });
   });
+}
+
+function formatDuration(totalSeconds: number): string {
+  const secs = Math.floor(totalSeconds);
+  if (!secs || secs <= 0) return '00:00';
+  return `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+}
+
+const PLATFORM_DISPLAY_NAMES: Record<Platform, string> = {
+  youtube: 'YouTube',
+  instagram: 'Instagram',
+  tiktok: 'TikTok',
+  facebook: 'Facebook',
+};
+
+/** Requested output: a video capped at `maxHeight`, or audio-only (mp3). */
+type ResolveQuality = { kind: 'video'; maxHeight: number } | { kind: 'audio' };
+
+const QUALITY_CAPS: Record<string, number> = {
+  max: 1080,
+  '1080p': 1080,
+  '720p': 720,
+  '480p': 480,
+  '360p': 360,
+};
+
+function parseResolveQuality(raw: unknown): ResolveQuality {
+  if (raw === undefined) return { kind: 'video', maxHeight: 1080 };
+  if (raw === 'mp3') return { kind: 'audio' };
+  if (typeof raw === 'string' && QUALITY_CAPS[raw] !== undefined) {
+    return { kind: 'video', maxHeight: QUALITY_CAPS[raw] };
+  }
+  throw new ApiError(400, 'BAD_REQUEST', 'Unsupported quality.');
+}
+
+/**
+ * Race the public Cobalt instances. Returns the first stream URL, or null
+ * when every instance fails. `rateLimited` is true when at least one
+ * instance explicitly reported rate limiting (as opposed to being down).
+ * The configured self-hosted Cobalt instance (see /api/download/*) remains
+ * the supported path; these public instances are a best-effort fallback and
+ * are frequently unreachable or auth-gated, so a null here is normal.
+ */
+async function tryPublicCobalt(url: string, downloadMode: 'auto' | 'audio', outboundLookup?: OutboundLookup): Promise<{ videoUrl: string; title: string; thumbnail: string; rateLimited: boolean }> {
+  const none = { videoUrl: '', title: '', thumbnail: '', rateLimited: false };
+  const cobaltEndpoints = ['https://cobalt.api.red.velvet.ink/', 'https://api.cobalt.tools/', 'https://cobalt.catvibers.me/', 'https://api.cobalt.best/'];
+  const cobaltBody = JSON.stringify(downloadMode === 'audio'
+    ? { url, downloadMode: 'audio', audioFormat: 'mp3', filenameStyle: 'classic' }
+    : { url, vQuality: '720', videoQuality: '720', filenameStyle: 'classic' });
+  let rateLimited = false;
+  const tryCobalt = async (ep: string) => {
+    let validated: URL;
+    // Endpoints are hardcoded constants, but the DNS check still applies:
+    // a hijacked/rebound endpoint must not turn the race into an SSRF relay.
+    // `outboundLookup` is the test seam (same pattern as secureFetch's
+    // lookup option); production always uses real DNS. In sandboxes whose
+    // DNS answers every host with a proxy CGNAT address, the lookup rejects
+    // and the race fails closed to null.
+    try { validated = await validateOutboundUrl(ep, outboundLookup ? { lookup: outboundLookup } : undefined); } catch { throw new Error('Invalid endpoint'); }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const r = await fetch(validated, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: cobaltBody, signal: ctrl.signal });
+      clearTimeout(t);
+      if (r.status === 429) { rateLimited = true; throw new Error('HTTP 429'); }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json() as Record<string, any>;
+      if (d?.error?.code && String(d.error.code).includes('rate-limited')) { rateLimited = true; throw new Error(`status=${d.error.code}`); }
+      if (['stream', 'tunnel', 'redirect'].includes(d.status)) return { videoUrl: d.url as string, title: (d.filename || '').replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim(), thumbnail: d.thumbnail || '' };
+      if (d.status === 'picker' && d.picker?.length) return { videoUrl: d.picker[0].url as string, title: '', thumbnail: d.picker[0].thumb || '' };
+      throw new Error(`status=${d.status}`);
+    } finally { clearTimeout(t); }
+  };
+  try {
+    const r = await Promise.any(cobaltEndpoints.map(ep => tryCobalt(ep)));
+    return { ...r, rateLimited };
+  } catch { return { ...none, rateLimited }; }
+}
+
+export interface ResolvedSocialMedia {
+  title: string;
+  thumbnail: string;
+  videoUrl: string;
+  duration: string;
+  platform: string;
+  /** Quality actually served, e.g. '360p', 'hd', 'sd', 'audio', 'original'. */
+  qualityServed: string;
+}
+
+/**
+ * Resolve a social-media URL to a downloadable stream using only the
+ * config-free providers (YouTube InnerTube, yt-dlp when installed, tikwm,
+ * public Cobalt race, YouTube oEmbed for metadata).
+ *
+ * Honest failures: 400 for unsupported/non-HTTPS URLs, 429 when a provider
+ * explicitly rate-limited the request, 422 when the link is private,
+ * removed, or has no extractable stream. Never returns a fabricated URL.
+ * NOTE: the link itself is only ever sent to the fixed provider hosts
+ * below — the user-supplied URL is never fetched directly by this server
+ * (no OG scrape), so it cannot be used as an SSRF relay.
+ */
+async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundLookup?: OutboundLookup): Promise<ResolvedSocialMedia> {
+  const platform = detectPlatform(rawUrl);
+  if (!platform) {
+    throw new ApiError(400, 'BAD_REQUEST', 'Only YouTube, TikTok, Instagram, and Facebook links are supported.');
+  }
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch {
+    throw new ApiError(400, 'BAD_REQUEST', 'Invalid URL format.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new ApiError(400, 'BAD_REQUEST', 'Only HTTPS URLs are supported.');
+  }
+  const quality = parseResolveQuality(qualityRaw);
+  const platformName = PLATFORM_DISPLAY_NAMES[platform];
+  const isYT = platform === 'youtube';
+  const isTT = platform === 'tiktok';
+
+  let title = '', thumbnail = '', videoUrl = '', duration = '00:00';
+  let qualityServed = 'original';
+  let sawRateLimit = false;
+  let sawPrivate = false;
+
+  // 1. YouTube: InnerTube multi-client rotation — tries multiple client types to avoid rate limiting.
+  //    Skipped for audio-only requests: a video stream renamed .mp3 would be a corrupt download.
+  if (isYT && quality.kind === 'video') {
+    const ytId = rawUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (ytId) {
+      const ytClients = [
+        { clientName: 'ANDROID_VR', clientVersion: '1.57.29', androidSdkVersion: 32, ua: 'com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip' },
+        { clientName: 'ANDROID_VR', clientVersion: '1.60.19', androidSdkVersion: 32, ua: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 13; Quest 3 Build/5.1.0) gzip' },
+        { clientName: 'ANDROID_VR', clientVersion: '1.62.33', androidSdkVersion: 33, ua: 'com.google.android.apps.youtube.vr.oculus/1.62.33 (Linux; U; Android 14; Quest Pro Build/ST1A.230802.036) gzip' },
+        { clientName: 'ANDROID_VR', clientVersion: '1.64.21', androidSdkVersion: 34, ua: 'com.google.android.apps.youtube.vr.oculus/1.64.21 (Linux; U; Android 15; Quest S Build/AP3A.240905.015) gzip' },
+      ];
+      for (const yc of ytClients) {
+        if (videoUrl) break;
+        try {
+          const ctrl = new AbortController();
+          const to = setTimeout(() => ctrl.abort(), 8000);
+          const pr = await ytFetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'User-Agent': yc.ua, 'X-Goog-Api-Format-Version': '2', 'X-YouTube-Client-Name': '28', 'X-YouTube-Client-Version': yc.clientVersion },
+            body: JSON.stringify({
+              videoId: ytId,
+              context: { client: { clientName: yc.clientName, clientVersion: yc.clientVersion, androidSdkVersion: yc.androidSdkVersion, hl: 'en', gl: 'US', osName: 'Android', osVersion: '14' } },
+            }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(to);
+          if (pr.status === 429) { sawRateLimit = true; continue; }
+          if (pr.ok) {
+            const pd = await pr.json() as Record<string, any>;
+            const playability = pd.playabilityStatus?.status as string | undefined;
+            if (playability === 'OK') {
+              const vd = pd.videoDetails;
+              if (vd?.title) title = vd.title;
+              if (vd?.thumbnail?.thumbnails?.length) { const thumbs = vd.thumbnail.thumbnails; thumbnail = thumbs[thumbs.length - 1].url; }
+              if (!thumbnail) thumbnail = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+              const secs = parseInt(vd?.lengthSeconds || '0', 10);
+              if (secs) duration = formatDuration(secs);
+              const formats: any[] = pd.streamingData?.formats || [];
+              const sorted = [...formats].sort((a: any, b: any) => (b.height || 0) - (a.height || 0));
+              const cap = quality.maxHeight;
+              const best = sorted.find((f: any) => f.url && (f.height || 999) <= cap) || sorted.find((f: any) => f.url);
+              if (best?.url) {
+                videoUrl = best.url;
+                if (best.height) qualityServed = `${best.height}p`;
+              }
+            } else if (playability === 'ERROR' || playability === 'LOGIN_REQUIRED' || playability === 'UNPLAYABLE') {
+              const reason = String(pd.playabilityStatus?.reason || '');
+              if (/private|removed|unavailable|deleted/i.test(reason)) sawPrivate = true;
+            }
+          }
+        } catch { /* try next client */ }
+        // A private/removed video will not become playable on another
+        // client — stop rotating instead of burning 4 attempts on it.
+        if (sawPrivate) break;
+        if (!videoUrl) await new Promise(r => setTimeout(r, 300));
+      }
+    }
+  }
+
+  // 2. yt-dlp fallback (works for YouTube + other platforms when yt-dlp is available on the server).
+  //    Absent on Vercel and in this sandbox — fails fast to null, never faked.
+  if (!videoUrl) {
+    const format = quality.kind === 'audio'
+      ? 'bestaudio[ext=mp3]/bestaudio/best'
+      : `best[height<=${quality.maxHeight}][ext=mp4]/best[height<=${quality.maxHeight}]/best[ext=mp4]/best`;
+    const ytdlpResult = await resolveWithYtdlp(rawUrl, format);
+    if (ytdlpResult) {
+      videoUrl = ytdlpResult.videoUrl;
+      if (!title && ytdlpResult.title) title = ytdlpResult.title;
+      if (!thumbnail && ytdlpResult.thumbnail) thumbnail = ytdlpResult.thumbnail;
+      if (duration === '00:00' && ytdlpResult.duration !== '00:00') duration = ytdlpResult.duration;
+      qualityServed = quality.kind === 'audio' ? 'audio' : `${quality.maxHeight}p`;
+    }
+  }
+
+  // 3. TikTok: tikwm.com free API (no auth required; 1 req/sec on the free tier).
+  if (!videoUrl && isTT && quality.kind === 'video') {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 10000);
+      const hd = quality.maxHeight >= 720 ? 1 : 0;
+      const tr = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(rawUrl)}&hd=${hd}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: ctrl.signal,
+      });
+      clearTimeout(to);
+      if (tr.ok) {
+        const td = await tr.json() as Record<string, any>;
+        if (td.code === 0 && td.data) {
+          const useHd = hd === 1 && td.data.hdplay;
+          videoUrl = (useHd ? td.data.hdplay : td.data.play) || td.data.play || td.data.hdplay || '';
+          qualityServed = useHd ? 'hd' : 'sd';
+          if (!title && td.data.title) title = td.data.title;
+          if (!thumbnail && td.data.cover) thumbnail = td.data.cover;
+          if (duration === '00:00' && td.data.duration) {
+            const secs = parseInt(td.data.duration, 10);
+            if (secs) duration = formatDuration(secs);
+          }
+        } else if (td.code === -1 && /limit/i.test(String(td.msg || ''))) {
+          sawRateLimit = true;
+        }
+      } else if (tr.status === 429) {
+        sawRateLimit = true;
+      }
+    } catch { /* tikwm failed, fall through to Cobalt */ }
+  }
+
+  // 4. Cobalt race for stream URL (all platforms; audio mode for mp3 requests).
+  if (!videoUrl) {
+    const r = await tryPublicCobalt(rawUrl, quality.kind === 'audio' ? 'audio' : 'auto', outboundLookup);
+    if (r.rateLimited) sawRateLimit = true;
+    if (r.videoUrl) {
+      videoUrl = r.videoUrl;
+      if (!title && r.title) title = r.title;
+      if (!thumbnail && r.thumbnail) thumbnail = r.thumbnail;
+      if (quality.kind === 'audio') qualityServed = 'audio';
+    }
+  }
+
+  // 5. Metadata fallback: YouTube oEmbed (fixed host, video-ID derived).
+  //    No generic OG scrape: fetching an arbitrary user-supplied URL
+  //    server-side would be an SSRF relay, and title/thumbnail alone can
+  //    never produce a download anyway.
+  if (isYT && (!title || !thumbnail)) {
+    const ytId = rawUrl.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
+    if (ytId) {
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 5000);
+        const oe = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytId}&format=json`, { signal: ctrl.signal });
+        clearTimeout(to);
+        if (oe.ok) { const od = await oe.json() as Record<string, any>; if (!title) title = od.title; if (!thumbnail) thumbnail = `https://img.youtube.com/vi/${ytId}/maxresdefault.jpg`; }
+      } catch { /* ignore */ }
+    }
+  }
+
+  if (!videoUrl) {
+    if (sawRateLimit) {
+      throw new ApiError(429, 'RATE_LIMITED', 'The provider temporarily rate-limited this request. Wait a few minutes and try again.', 60);
+    }
+    if (sawPrivate) {
+      throw new ApiError(422, 'PROVIDER_ERROR', 'This video is private, removed, or unavailable.');
+    }
+    if (quality.kind === 'audio') {
+      throw new ApiError(422, 'PROVIDER_ERROR', 'Audio-only download is not available for this link. Try the video quality instead.');
+    }
+    throw new ApiError(422, 'PROVIDER_ERROR', isYT
+      ? 'YouTube temporarily blocked this request (rate limit). Try a different video or wait a few minutes and try again.'
+      : 'Could not extract a stream URL. The link may be private, expired, or unsupported.');
+  }
+  if (!title) title = `${platformName} Video`;
+  if (!thumbnail) thumbnail = 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&auto=format&fit=crop&q=60';
+
+  return { title, thumbnail, videoUrl, duration, platform: platformName, qualityServed };
 }
 
 function originPolicy(config: AppConfig) { return (req: Request, res: Response, next: NextFunction) => {
@@ -85,8 +389,9 @@ function decodeAudio(body: unknown): { audio: string; mimeType: string } {
   return { audio, mimeType: mimeType.toLowerCase() };
 }
 
-export function createApp(options: { generateContent?: (audio: string, mimeType: string) => Promise<string>; providerTimeoutMs?: number; config?: AppConfig; rateLimitStore?: RateLimitStore } = {}) {
+export function createApp(options: { generateContent?: (audio: string, mimeType: string) => Promise<string>; providerTimeoutMs?: number; config?: AppConfig; rateLimitStore?: RateLimitStore; outboundLookup?: OutboundLookup } = {}) {
   const config = options.config ?? loadConfig();
+  const outboundLookup = options.outboundLookup;
   const store = config.transcriptionEnabled ? options.rateLimitStore ?? (config.environment === 'production' && config.redisUrl && config.redisToken
     ? new UpstashRateLimitStore(config.redisUrl, config.redisToken)
     : new MemoryRateLimitStore()) : undefined;
@@ -153,171 +458,30 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
   });
   app.post('/api/resolve-social', express.json({ limit: '4kb', strict: true }), async (req, res, next) => {
     try {
-      const { url } = req.body as Record<string, unknown>;
+      const body = req.body as Record<string, unknown>;
+      const keys = Object.keys(body);
+      if (keys.some((k) => !['url', 'quality'].includes(k))) {
+        throw new ApiError(400, 'BAD_REQUEST', 'The request contains unsupported fields.');
+      }
+      const { url, quality } = body;
       if (!url || typeof url !== 'string') throw new ApiError(400, 'BAD_REQUEST', "Missing 'url'.");
-
-      const lowerUrl = url.toLowerCase();
-      const isYT = lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be');
-      const isTT = lowerUrl.includes('tiktok.com');
-      const isIG = lowerUrl.includes('instagram.com');
-      const isFB = lowerUrl.includes('facebook.com') || lowerUrl.includes('fb.watch');
-      const platform = isYT ? 'YouTube' : isTT ? 'TikTok' : isIG ? 'Instagram' : isFB ? 'Facebook' : 'Web Video';
-
-      let title = '', thumbnail = '', videoUrl = '', duration = '00:00';
-
-      // 1. YouTube: InnerTube multi-client rotation — tries multiple client types to avoid rate limiting
-      if (isYT) {
-        const ytId = url.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
-        if (ytId) {
-          const ytClients = [
-            { clientName: 'ANDROID_VR', clientVersion: '1.57.29', androidSdkVersion: 32, ua: 'com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip' },
-            { clientName: 'ANDROID_VR', clientVersion: '1.60.19', androidSdkVersion: 32, ua: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 13; Quest 3 Build/5.1.0) gzip' },
-            { clientName: 'ANDROID_VR', clientVersion: '1.62.33', androidSdkVersion: 33, ua: 'com.google.android.apps.youtube.vr.oculus/1.62.33 (Linux; U; Android 14; Quest Pro Build/ST1A.230802.036) gzip' },
-            { clientName: 'ANDROID_VR', clientVersion: '1.64.21', androidSdkVersion: 34, ua: 'com.google.android.apps.youtube.vr.oculus/1.64.21 (Linux; U; Android 15; Quest S Build/AP3A.240905.015) gzip' },
-          ];
-          for (const yc of ytClients) {
-            if (videoUrl) break;
-            try {
-              const ctrl = new AbortController();
-              const to = setTimeout(() => ctrl.abort(), 8000);
-              const pr = await ytFetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'User-Agent': yc.ua, 'X-Goog-Api-Format-Version': '2', 'X-YouTube-Client-Name': '28', 'X-YouTube-Client-Version': yc.clientVersion },
-                body: JSON.stringify({
-                  videoId: ytId,
-                  context: { client: { clientName: yc.clientName, clientVersion: yc.clientVersion, androidSdkVersion: yc.androidSdkVersion, hl: 'en', gl: 'US', osName: 'Android', osVersion: '14' } },
-                }),
-                signal: ctrl.signal,
-              });
-              clearTimeout(to);
-              if (pr.ok) {
-                const pd = await pr.json() as Record<string, any>;
-                if (pd.playabilityStatus?.status === 'OK') {
-                  const vd = pd.videoDetails;
-                  if (vd?.title) title = vd.title;
-                  if (vd?.thumbnail?.thumbnails?.length) { const thumbs = vd.thumbnail.thumbnails; thumbnail = thumbs[thumbs.length - 1].url; }
-                  if (!thumbnail) thumbnail = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
-                  const secs = parseInt(vd?.lengthSeconds || '0', 10);
-                  if (secs) duration = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
-                  const formats: any[] = pd.streamingData?.formats || [];
-                  const sorted = [...formats].sort((a: any, b: any) => (b.height || 0) - (a.height || 0));
-                  const best = sorted.find((f: any) => f.url && (f.height || 999) <= 720) || sorted.find((f: any) => f.url);
-                  if (best?.url) videoUrl = best.url;
-                }
-              }
-            } catch { /* try next client */ }
-            if (!videoUrl) await new Promise(r => setTimeout(r, 300));
-          }
-        }
-      }
-
-      // 2. yt-dlp fallback (works for YouTube + other platforms when yt-dlp is available on the server)
-      if (!videoUrl) {
-        const ytdlpResult = await resolveWithYtdlp(url);
-        if (ytdlpResult) {
-          videoUrl = ytdlpResult.videoUrl;
-          if (!title && ytdlpResult.title) title = ytdlpResult.title;
-          if (!thumbnail && ytdlpResult.thumbnail) thumbnail = ytdlpResult.thumbnail;
-          if (duration === '00:00' && ytdlpResult.duration !== '00:00') duration = ytdlpResult.duration;
-        }
-      }
-
-      // 3. TikTok: tikwm.com free API (no auth required)
-      if (!videoUrl && isTT) {
-        try {
-          const ctrl = new AbortController();
-          const to = setTimeout(() => ctrl.abort(), 10000);
-          const tr = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(url)}&hd=1`, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' },
-            signal: ctrl.signal,
-          });
-          clearTimeout(to);
-          if (tr.ok) {
-            const td = await tr.json() as Record<string, any>;
-            if (td.code === 0 && td.data) {
-              videoUrl = td.data.hdplay || td.data.play || '';
-              if (!title && td.data.title) title = td.data.title;
-              if (!thumbnail && td.data.cover) thumbnail = td.data.cover;
-              if (duration === '00:00' && td.data.duration) {
-                const secs = parseInt(td.data.duration, 10);
-                if (secs) duration = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
-              }
-            }
-          }
-        } catch { /* tikwm failed, fall through to Cobalt */ }
-      }
-
-      // 4. Cobalt race for stream URL (all platforms, including YouTube fallback)
-      if (!videoUrl) {
-        const cobaltEndpoints = ['https://cobalt.api.red.velvet.ink/', 'https://api.cobalt.tools/', 'https://cobalt.catvibers.me/', 'https://api.cobalt.best/'];
-        const cobaltBody = JSON.stringify({ url, vQuality: '720', videoQuality: '720', filenameStyle: 'classic' });
-        const tryCobalt = async (ep: string) => {
-          let validated: URL;
-          try { validated = await validateOutboundUrl(ep); } catch { throw new Error('Invalid endpoint'); }
-          const ctrl = new AbortController();
-          const t = setTimeout(() => ctrl.abort(), 6000);
-          try {
-            const r = await fetch(validated, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: cobaltBody, signal: ctrl.signal });
-            clearTimeout(t);
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const d = await r.json() as Record<string, any>;
-            if (['stream', 'tunnel', 'redirect'].includes(d.status)) return { videoUrl: d.url as string, title: (d.filename || '').replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ').trim(), thumbnail: d.thumbnail || '' };
-            if (d.status === 'picker' && d.picker?.length) return { videoUrl: d.picker[0].url as string, title: '', thumbnail: d.picker[0].thumb || '' };
-            throw new Error(`status=${d.status}`);
-          } finally { clearTimeout(t); }
-        };
-        try {
-          const r = await Promise.any(cobaltEndpoints.map(ep => tryCobalt(ep)));
-          videoUrl = r.videoUrl;
-          if (!title && r.title) title = r.title;
-          if (!thumbnail && r.thumbnail) thumbnail = r.thumbnail;
-        } catch { /* all Cobalt instances failed */ }
-      }
-
-      // 5. Metadata fallback: YouTube oEmbed or OG scrape
-      if (!title || !thumbnail) {
-        if (isYT) {
-        const ytId = url.match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
-          if (ytId) {
-            try {
-              const oe = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${ytId}&format=json`);
-              if (oe.ok) { const od = await oe.json() as Record<string, any>; if (!title) title = od.title; if (!thumbnail) thumbnail = `https://img.youtube.com/vi/${ytId}/maxresdefault.jpg`; }
-            } catch { /* ignore */ }
-          }
-        } else {
-          try {
-            const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 3000);
-            const r = await fetch(url, { headers: { 'User-Agent': 'facebookexternalhit/1.1' }, signal: ctrl.signal });
-            clearTimeout(t);
-            if (r.ok) {
-              const html = await r.text();
-              if (!title) { const m = html.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i) || html.match(/<title>([^<]+)<\/title>/i); if (m) title = m[1].replace(/&amp;/g, '&').trim(); }
-              if (!thumbnail) { const m = html.match(/property=["']og:image["'][^>]*content=["']([^"']+)["']/i); if (m) thumbnail = m[1]; }
-            }
-          } catch { /* ignore */ }
-        }
-      }
-
-      if (!videoUrl) throw new ApiError(422, 'PROVIDER_ERROR', isYT
-        ? 'YouTube temporarily blocked this request (rate limit). Try a different video or wait a few minutes and try again.'
-        : 'Could not extract a stream URL. The link may be private, expired, or unsupported.');
-      if (!title) title = `${platform} Video`;
-      if (!thumbnail) thumbnail = 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&auto=format&fit=crop&q=60';
-
-      res.json({ title, thumbnail, videoUrl, duration, platform, requestId: res.locals.requestId });
+      const resolved = await resolveSocialMedia(url, quality, outboundLookup);
+      res.json({ ...resolved, requestId: res.locals.requestId });
     } catch (error) { next(error instanceof ApiError ? error : new ApiError(502, 'PROVIDER_ERROR', 'The resolver could not process this request.')); }
   });
 
   // ── /api/media-proxy: stream external media through the server with SSRF protection ──
+  // ── /api/media-proxy: stream external media through the server with SSRF protection ──
+  // Redirects are followed manually (max 3 hops) with every hop re-validated
+  // by validateOutboundUrl — the old redirect:'follow' let an upstream
+  // bounce the request to a private/internal host (SSRF via redirect).
   app.get('/api/media-proxy', async (req, res, next) => {
     try {
       const { url, filename } = req.query as Record<string, string>;
       if (!url || typeof url !== 'string') throw new ApiError(400, 'BAD_REQUEST', "Missing 'url'.");
 
-      let validated: URL;
-      try { validated = await validateOutboundUrl(url); } catch { throw new ApiError(403, 'BAD_REQUEST', 'The target URL is not allowed.'); }
+      let current: URL;
+      try { current = await validateOutboundUrl(url, outboundLookup ? { lookup: outboundLookup } : undefined); } catch { throw new ApiError(403, 'BAD_REQUEST', 'The target URL is not allowed.'); }
 
       const rangeHeader = req.headers.range;
       const fetchHeaders: Record<string, string> = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', Accept: 'video/mp4,video/*;q=0.9,*/*;q=0.8' };
@@ -327,7 +491,28 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
       const timeout = setTimeout(() => controller.abort(), 15000);
       req.on('close', () => { clearTimeout(timeout); controller.abort(); });
 
-      const upstream = await fetch(validated, { headers: fetchHeaders, signal: controller.signal, redirect: 'follow' });
+      let upstream: globalThis.Response | undefined;
+      const visited = new Set<string>();
+      for (let hop = 0; hop <= 3; hop++) {
+        if (visited.has(current.href)) throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream redirect looped.');
+        visited.add(current.href);
+        const attempt = await fetch(current, { headers: fetchHeaders, signal: controller.signal, redirect: 'manual' });
+        if ([301, 302, 303, 307, 308].includes(attempt.status)) {
+          if (hop === 3) throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream redirected too many times.');
+          const location = attempt.headers.get('location');
+          if (!location) throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream redirect was invalid.');
+          let nextUrl: URL;
+          try { nextUrl = new URL(location, current); } catch { throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream redirect was invalid.'); }
+          if (current.protocol === 'https:' && nextUrl.protocol !== 'https:') throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream protocol downgrade was rejected.');
+          // Re-validate every hop: a redirect to localhost / a private IP /
+          // cloud metadata is rejected here, fail-closed.
+          current = await validateOutboundUrl(nextUrl.href, outboundLookup ? { lookup: outboundLookup } : undefined);
+          continue;
+        }
+        upstream = attempt;
+        break;
+      }
+      if (!upstream) throw new ApiError(502, 'PROVIDER_ERROR', 'The upstream redirect was invalid.');
       clearTimeout(timeout);
 
       if (!upstream.ok && upstream.status !== 206) {
@@ -335,23 +520,35 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
       }
 
       const ct = upstream.headers.get('Content-Type') || 'video/mp4';
+      const mime = ct.split(';')[0].trim().toLowerCase();
+      // Only real media is relayed — an HTML/error page proxied as a
+      // "download" would be a misleading output and an arbitrary-URL relay.
+      const isMedia = /^(video|audio|image)\//.test(mime) || mime === 'application/octet-stream';
+      if (!isMedia) throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'The upstream URL did not return downloadable media.');
       const cl = upstream.headers.get('Content-Length');
       const cr = upstream.headers.get('Content-Range');
-      const safeFilename = (filename || 'video').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeFilename = proxyFilename(filename, mime);
 
       res.status(upstream.status === 206 ? 206 : 200);
       res.setHeader('Content-Type', ct);
-      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.mp4"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
       res.setHeader('Accept-Ranges', 'bytes');
       if (cl) res.setHeader('Content-Length', cl);
       if (cr) res.setHeader('Content-Range', cr);
 
       if (!upstream.body) { res.end(); return; }
       const reader = upstream.body.getReader();
+      let streamedBytes = 0;
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();
           if (done) { res.end(); break; }
+          streamedBytes += value.byteLength;
+          if (streamedBytes > MAX_PROXY_BYTES) {
+            try { await reader.cancel(); } catch { /* already closed */ }
+            res.destroy();
+            throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The upstream media exceeds the 512 MiB proxy limit.');
+          }
           const ok = res.write(value);
           if (!ok) await new Promise(r => res.once('drain', r));
         }
@@ -393,11 +590,27 @@ export function createApp(options: { generateContent?: (audio: string, mimeType:
           downloadMode: typeof downloadMode === 'string' ? downloadMode : undefined,
         });
         if (result.status === 'error') {
-          const code = result.errorCode === 'PROVIDER_NOT_CONFIGURED' ? 'SERVICE_UNAVAILABLE'
-            : result.errorCode === 'PROVIDER_TIMEOUT' ? 'PROVIDER_TIMEOUT'
-            : 'PROVIDER_ERROR';
-          const status = code === 'SERVICE_UNAVAILABLE' ? 503 : code === 'PROVIDER_TIMEOUT' ? 504 : 502;
-          throw new ApiError(status, code, `The download provider could not resolve this URL.`);
+          const code = result.errorCode ?? 'PROVIDER_ERROR';
+          // Surface the provider's own failure kind instead of collapsing
+          // everything into a generic 502 — the frontend shows this to the
+          // user, so "rate-limited" must not read as "provider down" and
+          // "unsupported link" must not read as a server bug.
+          if (code === 'PROVIDER_NOT_CONFIGURED') {
+            throw new ApiError(503, 'SERVICE_UNAVAILABLE', 'Social download service is not configured.');
+          }
+          if (code === 'PROVIDER_TIMEOUT') {
+            throw new ApiError(504, 'PROVIDER_TIMEOUT', 'The download provider timed out. Try again in a moment.');
+          }
+          if (code === 'PROVIDER_RATE_LIMITED' || code.includes('rate-limited')) {
+            throw new ApiError(429, 'RATE_LIMITED', 'The download provider is rate-limited. Wait a few minutes and try again.', result.retryAfterSeconds);
+          }
+          if (code.includes('unsupported') || code.includes('invalid')) {
+            throw new ApiError(422, 'PROVIDER_ERROR', 'This link is not supported by the download provider.');
+          }
+          if (code.includes('blocked')) {
+            throw new ApiError(422, 'PROVIDER_ERROR', 'This content is private or blocked by the provider.');
+          }
+          throw new ApiError(502, 'PROVIDER_ERROR', 'The download provider could not resolve this URL.');
         }
         res.json({ ...result, requestId: res.locals.requestId });
       } catch (error) { next(error instanceof ApiError ? error : new ApiError(502, 'PROVIDER_ERROR', 'The download provider could not complete the request.')); }

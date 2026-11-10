@@ -1,6 +1,6 @@
 # Omnitily-Web
 
-Omnitily is a React/Vite utility catalog with 113 stable route IDs. P0-A introduces truthful maturity states: functional, beta, coming soon, and temporarily unavailable. Tool pages disclose whether processing happens in the browser, on Omnitily’s server, or through an external provider.
+Omnitily is a React/Vite utility catalog with 117 stable route IDs. P0-A introduces truthful maturity states: functional, beta, coming soon, and temporarily unavailable. Tool pages disclose whether processing happens in the browser, on Omnitily’s server, or through an external provider.
 
 ## Requirements
 

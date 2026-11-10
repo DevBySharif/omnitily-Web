@@ -72,8 +72,8 @@ const TOOL_CATALOG = [
   },
   {
     id: 'video-to-audio',
-    title: 'Video to MP3 Extractor',
-    description: 'Extract raw audio tracks from MP4 video files entirely in your browser.',
+    title: 'Video to Audio Extractor',
+    description: 'Extract the audio track from MP4/WebM video files as a WAV file entirely in your browser.',
     category: 'Video',
     icon: 'Radio',
     color: 'border-cyan-500/20 hover:border-cyan-500/60 text-cyan-400 bg-cyan-500/5'
@@ -81,7 +81,7 @@ const TOOL_CATALOG = [
   {
     id: 'frame-extractor',
     title: 'Video Frame Grabber',
-    description: 'Scrub and extract pixel-perfect JPEG/PNG image frames from raw video files.',
+    description: 'Scrub and extract pixel-perfect JPEG image frames from raw video files.',
     category: 'Video',
     icon: 'Camera',
     color: 'border-sky-500/20 hover:border-sky-500/60 text-sky-400 bg-sky-500/5'
@@ -145,7 +145,7 @@ const TOOL_CATALOG = [
   {
     id: 'subtitles-editor',
     title: 'SRT Subtitle Creator',
-    description: 'Draft, synchronize, and hardcode standard SRT subtitle blocks over video timelines.',
+    description: 'Draft, validate, and export standard SRT/VTT subtitle files, or build timed cues from plain lines.',
     category: 'Video',
     icon: 'FileText',
     color: 'border-amber-500/20 hover:border-amber-500/60 text-amber-400 bg-amber-500/5'
@@ -976,23 +976,23 @@ const TOOL_CATALOG = [
 export type ToolId = (typeof TOOL_CATALOG)[number]['id'];
 
 const STATUS_BY_ID: Record<ToolId, ToolStatus> = {
-  'video-splitter': 'disabled',
+  'video-splitter': 'functional',
   'social-downloader': 'functional',
-  'youtube-downloader': 'beta',
+  'youtube-downloader': 'functional',
   'instagram-downloader': 'beta',
-  'tiktok-downloader': 'beta',
+  'tiktok-downloader': 'functional',
   'facebook-downloader': 'beta',
-  'gif-maker': 'beta',
-  'video-to-audio': 'beta',
-  'frame-extractor': 'beta',
-  'video-speed': 'disabled',
-  'video-muter': 'disabled',
-  'video-compressor': 'coming-soon',
-  'video-looper': 'coming-soon',
-  'video-rotator': 'disabled',
-  'video-resizer': 'disabled',
-  'video-watermark': 'disabled',
-  'subtitles-editor': 'coming-soon',
+  'gif-maker': 'functional',
+  'video-to-audio': 'functional',
+  'frame-extractor': 'functional',
+  'video-speed': 'functional',
+  'video-muter': 'functional',
+  'video-compressor': 'functional',
+  'video-looper': 'functional',
+  'video-rotator': 'functional',
+  'video-resizer': 'functional',
+  'video-watermark': 'functional',
+  'subtitles-editor': 'functional',
   'image-converter': 'functional',
   'color-extractor': 'functional',
   'image-compressor': 'beta',
@@ -1097,12 +1097,6 @@ const STATUS_BY_ID: Record<ToolId, ToolStatus> = {
 
 const DISABLED_REASONS: Partial<Record<ToolId, string>> = {
   'audio-transcriber': 'Server-based transcription is temporarily unavailable in the free deployment.',
-  'video-splitter': 'The current export method can create structurally invalid video files. It is disabled until a real media pipeline is available.',
-  'video-speed': 'The current implementation previews speed changes but does not create an adjusted video file.',
-  'video-muter': 'The current implementation only mutes preview playback and does not create a muted video file.',
-  'video-rotator': 'The current implementation only rotates the preview and does not create a rotated video file.',
-  'video-resizer': 'Video resizing is not implemented and no valid output is produced.',
-  'video-watermark': 'Video watermark export is not implemented and no valid output is produced.',
   'exif-viewer': 'The previous workspace displayed fabricated metadata instead of reading the uploaded image.',
   'favicon-generator': 'The previous export labeled PNG bytes as an ICO file.',
   'excel-to-csv': 'Excel parsing is not implemented and the current workspace cannot produce a valid CSV conversion.',
@@ -1128,6 +1122,7 @@ const DEDICATED_COMPONENTS: Partial<Record<ToolId, ToolComponentKey>> = {
   'tiktok-downloader': 'tiktok-downloader',
   'facebook-downloader': 'facebook-downloader',
   'social-downloader': 'social-downloader',
+  'video-splitter': 'video-splitter',
 };
 
 function formatsFor(category: ToolCategory): { input: string[]; output: string[] } {

@@ -2,6 +2,8 @@
 
 **Effective:** P1-B visibility cleanup (2026-08-04)
 
+> **Update (2026-11-10, video-tools phase):** the catalog now has 117 routes with 37 functional / 24 beta / 43 coming-soon / 13 disabled (`src/toolsData.ts` is the source of truth). The counts in this document are the 2026-08-04 snapshot and are superseded by that update.
+
 ## Rule
 
 Only **functional** (production-ready) tools may be publicly visible. Tools with `beta`, `coming-soon`, or `disabled` status are hidden from every public discovery surface while keeping their stable routes, truthful status pages, and implementations intact.

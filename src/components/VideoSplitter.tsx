@@ -10,7 +10,6 @@ import {
   Pause,
   Play,
   Plus,
-  Question,
   Scissors,
   Sliders,
   Sparkle,
@@ -21,6 +20,7 @@ import {
 } from '@phosphor-icons/react';
 import confetti from 'canvas-confetti';
 import { useToast } from './Toast';
+import { buildVideoOutputFilename, reencodeVideo, validateVideoSegments } from '../lib/toolTransforms';
 
 interface VideoSplitterProps {
   onBack: () => void;
@@ -53,12 +53,14 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
   const [splitLogs, setSplitLogs] = useState<string[]>([]);
   const [trimmedVideoUrl, setTrimmedVideoUrl] = useState<string | null>(null);
   const [volume, setVolume] = useState<number>(0.8);
-  const [exportMethod, setExportMethod] = useState<'record' | 'slice'>('record');
 
   // Multi-Segment Split states
   const [splitMode, setSplitMode] = useState<'trim' | 'batch'>('trim');
   const [segments, setSegments] = useState<VideoSegment[]>([]);
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+
+  // Abort handle for the currently running re-encode (trim or batch).
+  const splitAbortRef = useRef<AbortController | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,217 +189,134 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
     setSegments([]);
   };
 
-  // Trims video client-side using stream capture & MediaRecorder or raw Blob slicing
+  // Trims video client-side with a real re-encode: the selected range is
+  // decoded, drawn to a canvas and recorded with MediaRecorder into a
+  // verified WebM file. There is deliberately NO byte-slicing path — cutting
+  // container bytes by time-ratio produces structurally invalid files.
   const handleSplitVideo = async () => {
     if (!videoFile || !videoRef.current) return;
     setSplitStatus('processing');
-    setSplitProgress(5);
+    setSplitProgress(0);
     setSplitLogs([]);
     setTrimmedVideoUrl(null);
 
-    addLog('Initializing video workspace...');
+    addLog('Starting trim — re-encoding in your browser (WebM output)...');
     addLog(`Target segment: ${formatTime(startTime)} to ${formatTime(endTime)} (${formatTime(endTime - startTime)} duration)`);
 
-    if (exportMethod === 'slice') {
-      await performSlicingSplit();
-    } else {
-      await performRecordingSplit();
-    }
-  };
-
-  const performSlicingSplit = () => {
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        addLog('Estimating frame offset positions...');
-        setSplitProgress(30);
-      }, 300);
-
-      setTimeout(() => {
-        addLog('Slicing video payload indices...');
-        setSplitProgress(60);
-      }, 600);
-
-      setTimeout(() => {
-        addLog('Rebuilding index tables (moov box)...');
-        setSplitProgress(85);
-      }, 900);
-
-      setTimeout(() => {
-        const startRatio = startTime / duration;
-        const endRatio = endTime / duration;
-        const byteStart = Math.floor(videoFile!.size * startRatio);
-        const byteEnd = Math.floor(videoFile!.size * endRatio);
-
-        const slicedBlob = videoFile!.slice(byteStart, byteEnd, videoFile!.type);
-        const url = URL.createObjectURL(slicedBlob);
-        
-        setTrimmedVideoUrl(url);
-        setSplitStatus('completed');
-        setSplitProgress(100);
-        addLog('Split completed successfully via binary byte slicing!');
-        confetti({ particleCount: 80, spread: 60 });
-        resolve();
-      }, 1200);
-    });
-  };
-
-  const performRecordingSplit = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
+    const controller = new AbortController();
+    splitAbortRef.current = controller;
     try {
-      addLog('Acquiring visual canvas stream...');
-      const streamObj = (video as any).captureStream ? (video as any).captureStream() : (video as any).mozCaptureStream ? (video as any).mozCaptureStream() : null;
-      
-      if (!streamObj) {
-        addLog('Direct stream capture not supported by browser. Switching to binary byte slicing...');
-        setExportMethod('slice');
-        await performSlicingSplit();
-        return;
+      const result = await reencodeVideo({
+        file: videoFile,
+        startTime,
+        endTime,
+        onProgress: (fraction) => setSplitProgress(Math.round(fraction * 95)),
+        signal: controller.signal,
+      });
+      const url = URL.createObjectURL(result.blob);
+      setTrimmedVideoUrl(url);
+      setSplitStatus('completed');
+      setSplitProgress(100);
+      const verifiedDuration = result.outputDurationSeconds ?? result.recordedWallSeconds;
+      addLog(`Verified WebM output: ${result.width}x${result.height}, ${verifiedDuration.toFixed(1)}s${result.hasAudio ? ', audio kept' : ', no audio track captured'}.`);
+      addLog('Trimmed video package created successfully!');
+      confetti({ particleCount: 100, spread: 70 });
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        addLog('Trim cancelled. No file was produced.');
+      } else {
+        addLog(`Trim failed: ${err instanceof Error ? err.message : 'Unknown error'}. No file was produced.`);
       }
-
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const source = audioCtx.createMediaElementSource(video);
-      const destination = audioCtx.createMediaStreamDestination();
-      source.connect(destination);
-      source.connect(audioCtx.destination);
-
-      const combinedStream = new MediaStream([
-        ...streamObj.getVideoTracks(),
-        ...destination.stream.getAudioTracks()
-      ]);
-
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
-        : MediaRecorder.isTypeSupported('video/webm')
-          ? 'video/webm'
-          : 'video/mp4';
-
-      addLog(`Supported format resolved: ${mimeType}`);
-      const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(combinedStream, { mimeType });
-
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        addLog('Finalizing stream chunks...');
-        const trimmedBlob = new Blob(chunks, { type: mimeType });
-        const url = URL.createObjectURL(trimmedBlob);
-        setTrimmedVideoUrl(url);
-        setSplitProgress(100);
-        setSplitStatus('completed');
-        addLog('Trimmed video package created successfully!');
-        confetti({ particleCount: 100, spread: 70 });
-      };
-
-      video.playbackRate = 1.0;
-      video.currentTime = startTime;
-      video.muted = false;
-
-      addLog('Positioning stream head...');
-      
-      video.onseeked = () => {
-        video.onseeked = null;
-        addLog('Recording and re-encoding segment...');
-        recorder.start();
-        video.play();
-        setIsPlaying(true);
-
-        const recordDuration = endTime - startTime;
-        const interval = setInterval(() => {
-          if (video.currentTime >= endTime || video.paused) {
-            clearInterval(interval);
-            recorder.stop();
-            video.pause();
-            setIsPlaying(false);
-          } else {
-            const currentProgress = ((video.currentTime - startTime) / recordDuration) * 90;
-            setSplitProgress(Math.min(90, Math.max(10, currentProgress)));
-          }
-        }, 100);
-      };
-
-    } catch (err: any) {
-      addLog(`Stream capture failed: ${err.message || err}. Reverting to binary slice fallback...`);
-      setExportMethod('slice');
-      await performSlicingSplit();
+      setSplitStatus('failed');
+      setSplitProgress(0);
+    } finally {
+      splitAbortRef.current = null;
     }
   };
 
-  // Batch conversion of multiple custom splits
+  // Batch: each segment is re-encoded for real, one after another, and only
+  // a verified WebM output is marked completed. No timers, no byte slicing.
   const handleBatchSplit = async () => {
-    if (segments.length === 0) return;
+    if (segments.length === 0 || !videoFile) return;
+    try {
+      validateVideoSegments(
+        segments.map((seg) => ({ startTime: seg.startTime, endTime: seg.endTime })),
+        duration
+      );
+    } catch (err) {
+      toast.error('Invalid Segments', err instanceof Error ? err.message : 'Check the segment ranges.');
+      return;
+    }
     setIsBatchProcessing(true);
 
     let successCount = 0;
     let errorCount = 0;
+    const controller = new AbortController();
+    splitAbortRef.current = controller;
 
     const pendingSegments = segments.filter(seg => seg.status !== 'completed');
 
     for (const seg of pendingSegments) {
+      if (controller.signal.aborted) break;
       // Mark processing
       setSegments(prev => prev.map(s => s.id === seg.id ? { ...s, status: 'processing', progress: 10 } : s));
-      
-      const status = await new Promise<'completed' | 'failed'>((resolve) => {
-        setTimeout(() => {
-          setSegments(prev => prev.map(s => s.id === seg.id ? { ...s, progress: 50 } : s));
-        }, 250);
 
-        setTimeout(() => {
-          try {
-            const startRatio = seg.startTime / duration;
-            const endRatio = seg.endTime / duration;
-            const byteStart = Math.floor(videoFile!.size * startRatio);
-            const byteEnd = Math.floor(videoFile!.size * endRatio);
-
-            const slicedBlob = videoFile!.slice(byteStart, byteEnd, videoFile!.type);
-            const trimmedUrl = URL.createObjectURL(slicedBlob);
-
-            setSegments(prev => prev.map(s => s.id === seg.id ? { 
-              ...s, 
-              status: 'completed', 
-              progress: 100, 
-              trimmedUrl 
-            } : s));
-            resolve('completed');
-          } catch (err) {
-            console.error(err);
-            setSegments(prev => prev.map(s => s.id === seg.id ? { 
-              ...s, 
-              status: 'failed', 
-              progress: 0 
-            } : s));
-            resolve('failed');
-          }
-        }, 500);
-      });
-
-      if (status === 'completed') {
+      try {
+        const result = await reencodeVideo({
+          file: videoFile,
+          startTime: seg.startTime,
+          endTime: seg.endTime,
+          onProgress: (fraction) => setSegments(prev => prev.map(s => s.id === seg.id ? { ...s, progress: Math.round(10 + fraction * 85) } : s)),
+          signal: controller.signal,
+        });
+        const trimmedUrl = URL.createObjectURL(result.blob);
+        setSegments(prev => prev.map(s => s.id === seg.id ? {
+          ...s,
+          status: 'completed',
+          progress: 100,
+          trimmedUrl
+        } : s));
         successCount++;
-      } else {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') break;
+        console.error(err);
+        setSegments(prev => prev.map(s => s.id === seg.id ? {
+          ...s,
+          status: 'failed',
+          progress: 0
+        } : s));
         errorCount++;
       }
     }
 
+    splitAbortRef.current = null;
     setIsBatchProcessing(false);
-    confetti({ particleCount: 100, spread: 80 });
+    if (controller.signal.aborted) {
+      toast.toast({
+        title: 'Batch Video Splitting Cancelled',
+        description: `Stopped early: ${successCount} segment${successCount !== 1 ? 's' : ''} completed, ${errorCount} failed.`,
+        type: 'warning'
+      });
+      return;
+    }
+    if (errorCount === 0 && successCount > 0) {
+      confetti({ particleCount: 100, spread: 80 });
+    }
 
     if (errorCount === 0) {
       toast.success(
         'Batch Video Splitting Complete',
-        `Successfully sliced and extracted ${successCount} video clip${successCount !== 1 ? 's' : ''}.`
+        `Successfully trimmed and re-encoded ${successCount} video clip${successCount !== 1 ? 's' : ''} (verified WebM files).`
       );
     } else if (successCount === 0) {
       toast.error(
         'Batch Video Splitting Failed',
-        `Failed to slice ${errorCount} video segment${errorCount !== 1 ? 's' : ''}.`
+        `Failed to process ${errorCount} video segment${errorCount !== 1 ? 's' : ''}. No output was produced for the failed segments.`
       );
     } else {
       toast.toast({
         title: 'Batch Video Splitting Finished',
-        description: `Successfully sliced ${successCount} segment${successCount !== 1 ? 's' : ''}, but failed for ${errorCount} segment${errorCount !== 1 ? 's' : ''}.`,
+        description: `Successfully re-encoded ${successCount} segment${successCount !== 1 ? 's' : ''}, but failed for ${errorCount} segment${errorCount !== 1 ? 's' : ''}.`,
         type: 'warning'
       });
     }
@@ -407,7 +326,7 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
     if (!seg.trimmedUrl) return;
     const a = document.createElement('a');
     a.href = seg.trimmedUrl;
-    a.download = `split_${seg.startTime.toFixed(1)}_${seg.endTime.toFixed(1)}_${videoFile?.name}`;
+    a.download = buildVideoOutputFilename(videoFile?.name ?? 'video', `split-${seg.startTime.toFixed(1)}-${seg.endTime.toFixed(1)}`);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -430,7 +349,8 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
   };
 
   const removeVideo = () => {
-    if (videoSrc) URL.revokeObjectURL(videoSrc);
+    splitAbortRef.current?.abort();
+    splitAbortRef.current = null;
     if (trimmedVideoUrl) URL.revokeObjectURL(trimmedVideoUrl);
     clearSegments();
     setVideoFile(null);
@@ -457,7 +377,7 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
             Video Splitting & Cutting
           </h1>
           <p className="text-gray-400 text-sm mt-1">
-            Visual range trimmer with high speed client-side multi-segment batch splitting capabilities.
+            Visual range trimmer with client-side multi-segment batch splitting. Every export is re-encoded in your browser and verified as a valid WebM file (max 5 min / 150 MB).
           </p>
         </div>
         {videoFile && (
@@ -487,7 +407,7 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
             <FilmStrip className="w-8 h-8" />
           </div>
           <h3 className="text-white font-sans text-lg">Drag & drop your video</h3>
-          <p className="text-gray-500 text-xs mt-1 mb-4">Supports MP4, WebM, MOV, OGG containers up to 150MB</p>
+          <p className="text-gray-500 text-xs mt-1 mb-4">Supports MP4, WebM, MOV, OGG containers up to 150MB and 5 minutes. Exports are re-encoded WebM files, verified before download.</p>
           <span className="text-xs font-bold text-[#0a0a0a] bg-[#10b981] px-4 py-2 rounded uppercase tracking-wider hover:bg-[#059669] transition-colors">
             Select Video File
           </span>
@@ -655,43 +575,10 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
                   <h2 className="font-sans text-lg text-white">Cutting Options</h2>
                 </div>
 
-                {/* Method choice */}
-                <div className="flex flex-col gap-2">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
-                    Export Method <span title="Smart Record records the video stream. Byte Slice is disabled at the route level until a valid media pipeline is available."><Question className="w-3 h-3 text-gray-500" /></span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button
-                      onClick={() => setExportMethod('record')}
-                      className={`p-2 font-semibold border rounded transition-all cursor-pointer ${
-                        exportMethod === 'record'
-                          ? 'border-[#10b981] bg-[#10b981]/10 text-[#10b981]'
-                          : 'border-[#2a2a2a] hover:border-gray-700 text-gray-400 bg-transparent'
-                      }`}
-                    >
-                      Smart Record (Safe)
-                    </button>
-                    <button
-                      onClick={() => setExportMethod('slice')}
-                      className={`p-2 font-semibold border rounded transition-all cursor-pointer ${
-                        exportMethod === 'slice'
-                          ? 'border-[#10b981] bg-[#10b981]/10 text-[#10b981]'
-                          : 'border-[#2a2a2a] hover:border-gray-700 text-gray-400 bg-transparent'
-                      }`}
-                    >
-                      Byte Slice (Instant)
-                    </button>
-                  </div>
+                {/* Export note: a single real re-encode path, verified output. */}
+                <div className="bg-[#151515] rounded border border-[#2a2a2a] p-3 text-xs flex flex-col gap-1.5 text-gray-400">
+                  <div><span className="font-bold text-gray-500 uppercase tracking-widest text-[9px] block">Export</span> Re-encoded WebM — the selected range is recorded in real time and verified (container header + duration) before download.</div>
                 </div>
-
-                {exportMethod === 'slice' && (
-                  <div className="bg-amber-950/20 border border-amber-900/40 text-amber-300 p-3 rounded-lg text-[10px] leading-relaxed flex flex-col gap-1">
-                    <span className="font-bold text-amber-200 uppercase tracking-wider text-[9px]">⚠️ Experimental Method</span>
-                    <p>
-                      Direct byte slicing cuts the file data instantly, but does not reconstruct container metadata headers (e.g. MP4 <code className="bg-black/45 px-1 py-0.5 rounded font-mono">moov</code> boxes). The output file may be unplayable in some browsers or media players. Use <strong>Smart Record</strong> for a fully compliant, high-fidelity stream container.
-                    </p>
-                  </div>
-                )}
 
                 {/* File Info */}
                 <div className="bg-[#151515] rounded border border-[#2a2a2a] p-3 text-xs flex flex-col gap-1.5 text-gray-400">
@@ -723,6 +610,12 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
                         style={{ width: `${splitProgress}%` }}
                       />
                     </div>
+                    <button
+                      onClick={() => splitAbortRef.current?.abort()}
+                      className="w-full py-2 text-xs font-bold rounded uppercase tracking-wider border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+                    >
+                      Cancel Export
+                    </button>
                   </div>
                 )}
 
@@ -742,10 +635,10 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
                     </div>
                     <a
                       href={trimmedVideoUrl}
-                      download={`trimmed_${videoFile.name}`}
+                      download={buildVideoOutputFilename(videoFile.name, 'trimmed')}
                       className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-xs uppercase tracking-widest shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
                     >
-                      <Download className="w-4 h-4" /> Download Trimmed Video
+                      <Download className="w-4 h-4" /> Download Trimmed Video (WebM)
                     </a>
                   </motion.div>
                 )}
@@ -841,6 +734,14 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
                         </>
                       )}
                     </button>
+                    {isBatchProcessing && (
+                      <button
+                        onClick={() => splitAbortRef.current?.abort()}
+                        className="w-full py-2 bg-[#111111] hover:bg-[#181818] text-red-400 border border-red-500/40 rounded font-bold text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        Cancel Batch
+                      </button>
+                    )}
                     {segments.some(seg => seg.status === 'completed') && (
                       <button
                         onClick={triggerDownloadAllSegs}

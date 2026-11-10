@@ -14,6 +14,7 @@ const InstagramDownloader = lazy(() => import('./InstagramDownloader'));
 const TikTokDownloader = lazy(() => import('./TikTokDownloader'));
 const FacebookDownloader = lazy(() => import('./FacebookDownloader'));
 const SocialDownloader = lazy(() => import('./SocialDownloader'));
+const VideoSplitter = lazy(() => import('./VideoSplitter'));
 
 interface ToolWorkspaceProps {
   tool: ToolDefinition;
@@ -149,6 +150,7 @@ function renderEnabledTool(tool: ToolDefinition, onBack: () => void, initialFile
     case 'tiktok-downloader': return <TikTokDownloader onBack={onBack} />;
     case 'facebook-downloader': return <FacebookDownloader onBack={onBack} />;
     case 'social-downloader': return <SocialDownloader onBack={onBack} />;
+    case 'video-splitter': return <VideoSplitter onBack={onBack} initialFile={initialFile} />;
     case 'generic': return <GenericUtilityWorkspace tool={tool} onBack={onBack} initialFile={initialFile} />;
     case undefined: throw new Error(`Enabled tool ${tool.id} is missing a component key.`);
   }

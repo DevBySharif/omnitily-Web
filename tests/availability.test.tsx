@@ -17,13 +17,13 @@ describe('truthful route availability', () => {
   });
 
   it('mounts a beta route and displays beta state', async () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['gif-maker']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['image-compressor']} onBack={back} />);
     expect(await screen.findByTestId('generic-workspace')).toBeInTheDocument();
     expect(screen.getByText('Beta')).toBeInTheDocument();
   });
 
   it('shows honest coming-soon content without generic controls', () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['video-compressor']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['image-cropper']} onBack={back} />);
     expect(screen.getByText('Coming Soon')).toBeInTheDocument();
     expect(screen.getByText(/processing for this tool is not implemented/i)).toBeInTheDocument();
     expect(screen.queryByTestId('generic-workspace')).not.toBeInTheDocument();

@@ -2,7 +2,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import { ApiError } from './errors.js';
 
-type Lookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
+export type OutboundLookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
 const IPV4_BLOCKS: Array<[number, number]> = [[0x00000000,8],[0x0a000000,8],[0x64400000,10],[0x7f000000,8],[0xa9fe0000,16],[0xac100000,12],[0xc0000000,24],[0xc0000200,24],[0xc0586300,24],[0xc0a80000,16],[0xc6120000,15],[0xc6336400,24],[0xcb007100,24],[0xe0000000,4],[0xf0000000,4]];
 
 function ipv4Number(ip: string): number | null {
@@ -22,7 +22,7 @@ export function isPublicIp(address: string): boolean {
   return !(ip === '::' || ip === '::1' || ip.startsWith('fc') || ip.startsWith('fd') || /^fe[89ab]/.test(ip) || ip.startsWith('ff') || ip.startsWith('2001:db8:'));
 }
 
-export async function validateOutboundUrl(raw: string, options: { lookup?: Lookup; allowHttp?: boolean } = {}): Promise<URL> {
+export async function validateOutboundUrl(raw: string, options: { lookup?: OutboundLookup; allowHttp?: boolean } = {}): Promise<URL> {
   let url: URL;
   try { url = new URL(raw); } catch { throw new ApiError(400, 'BAD_REQUEST', 'The URL is invalid.'); }
   if (url.protocol !== 'https:' && !(options.allowHttp && url.protocol === 'http:')) throw new ApiError(400, 'BAD_REQUEST', 'The URL protocol is not allowed.');
@@ -41,7 +41,7 @@ export async function validateOutboundUrl(raw: string, options: { lookup?: Looku
   return url;
 }
 
-export async function secureFetch(raw: string, options: { fetchImpl?: typeof fetch; lookup?: Lookup; maxRedirects?: number; maxBytes: number; timeoutMs: number; acceptedMime: RegExp; allowHttp?: boolean }): Promise<{ response: Response; bytes: Uint8Array; finalUrl: URL }> {
+export async function secureFetch(raw: string, options: { fetchImpl?: typeof fetch; lookup?: OutboundLookup; maxRedirects?: number; maxBytes: number; timeoutMs: number; acceptedMime: RegExp; allowHttp?: boolean }): Promise<{ response: Response; bytes: Uint8Array; finalUrl: URL }> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const visited = new Set<string>();
   let current = await validateOutboundUrl(raw, options);

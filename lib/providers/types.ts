@@ -34,6 +34,8 @@ export interface DownloadResult {
   audioUrl?: string;
   audioFilename?: string;
   errorCode?: string;
+  /** Seconds to wait before retrying, when the provider sent a Retry-After. */
+  retryAfterSeconds?: number;
 }
 
 export type Platform = 'youtube' | 'instagram' | 'tiktok' | 'facebook';

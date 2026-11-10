@@ -54,7 +54,9 @@ import {
 } from '@phosphor-icons/react';
 import type { ToolDefinition } from '../types';
 import gifshot from 'gifshot';
-import { convertCase, countText, decodeBase64Safely, decodeUrlSafely, formatJson, formatResult, generateLorem, parseFiniteNumber, percentageOf, playRockPaperScissors, removeDuplicateLines, rollDie, splitTip } from '../lib/toolTransforms';
+import type { ReencodeVideoResult, SubtitleCue, WatermarkPosition } from '../lib/toolTransforms';
+import { buildTimedCues, buildVideoOutputFilename, convertCase, countText, decodeBase64Safely, decodeUrlSafely, encodeWavPcm16, estimateCompressedBitrate, formatJson, formatResult, formatSubtitleText, formatSubtitleTimestamp, generateLorem, parseFiniteNumber, parseSubtitleText, parseWavHeader, percentageOf, planGifCapture, planLoopOutput, playRockPaperScissors, reencodeVideo, removeDuplicateLines, rollDie, splitTip, validateGifBytes, validateJpegBytes, validateVideoMediaFile, validateWebmBytes, VIDEO_MEDIA_LIMITS } from '../lib/toolTransforms';
+import { formatFileSize } from '../lib/imageTools';
 
 interface GenericUtilityWorkspaceProps {
   tool: ToolDefinition;
@@ -130,6 +132,106 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
   const [memeFontSize, setMemeFontSize] = useState(32);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Video re-encode jobs (video-speed / video-muter / video-rotator /
+  // video-resizer / video-watermark): real MediaRecorder output, cancellable.
+  const videoAbortRef = useRef<AbortController | null>(null);
+  const [isVideoJob, setIsVideoJob] = useState(false);
+  const [videoProgress, setVideoProgress] = useState<number | null>(null);
+
+  const describeVideoResult = (result: ReencodeVideoResult, detail: string, audioNote?: string) => {
+    const durationLine = result.outputDurationSeconds !== null
+      ? `Duration: ${result.outputDurationSeconds.toFixed(1)}s`
+      : `Duration (recorded): ${result.recordedWallSeconds.toFixed(1)}s — this browser did not write duration metadata into the WebM file, so the recorded length was verified instead.`;
+    const audioLine = audioNote ?? (result.hasAudio
+      ? 'Audio: kept (source audio track re-encoded).'
+      : 'Audio: none in output — no audio track was captured from the source in this browser.');
+    return `${detail}\nFormat: WebM (re-encoded in your browser, not the original container)\nDimensions: ${result.width}x${result.height}px\n${durationLine}\n${audioLine}`;
+  };
+
+  const runVideoTransform = async (
+    label: string,
+    options: Omit<Parameters<typeof reencodeVideo>[0], 'file' | 'onProgress' | 'signal'>,
+    filenameSuffix: string,
+    summarize: (result: ReencodeVideoResult) => string
+  ) => {
+    if (!uploadedFile) return;
+    if (!uploadedFile.type.startsWith('video/')) {
+      setOutputText(`This tool works on video files. Upload a video to ${label.toLowerCase()}.`);
+      addLog(`${label}: no video file uploaded.`);
+      return;
+    }
+    const controller = new AbortController();
+    videoAbortRef.current = controller;
+    setIsVideoJob(true);
+    setIsProcessing(true);
+    setVideoProgress(0);
+    addLog(`Starting ${label} — re-encoding in your browser (WebM output)...`);
+    try {
+      const result = await reencodeVideo({
+        file: uploadedFile,
+        ...options,
+        onProgress: (f) => setVideoProgress(Math.round(f * 100)),
+        signal: controller.signal,
+      });
+      const url = URL.createObjectURL(result.blob);
+      setConvertedBlobUrl(url);
+      setConvertedFilename(buildVideoOutputFilename(uploadedFile.name, filenameSuffix));
+      setOutputText(summarize(result));
+      addLog(`${label} complete — verified WebM output ready.`);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setOutputText('Export cancelled. No file was produced.');
+        addLog(`${label} cancelled.`);
+      } else {
+        setOutputText(`Error: ${err instanceof Error ? err.message : 'Video processing failed.'}\nNo file was produced.`);
+        addLog(`${label} failed.`);
+      }
+    } finally {
+      setIsProcessing(false);
+      setIsVideoJob(false);
+      setVideoProgress(null);
+      videoAbortRef.current = null;
+    }
+  };
+
+  // Video media tools (worker B): per-tool options + cancellation.
+  const [frameTimestamp, setFrameTimestamp] = useState(0);
+  const [compressPct, setCompressPct] = useState(50);
+  const [loopCount, setLoopCount] = useState(3);
+  const [subtitleText, setSubtitleText] = useState('');
+  const [subtitleFormat, setSubtitleFormat] = useState<'srt' | 'vtt'>('srt');
+  const [subtitleMode, setSubtitleMode] = useState<'edit' | 'build'>('edit');
+  const [subtitleCueSeconds, setSubtitleCueSeconds] = useState(3);
+  const [subtitleStartOffset, setSubtitleStartOffset] = useState(0);
+  const cancelRequestedRef = useRef(false);
+  const activeRecordingRef = useRef<{ recorder: MediaRecorder; video: HTMLVideoElement } | null>(null);
+
+  const cancelProcessing = () => {
+    cancelRequestedRef.current = true;
+    const active = activeRecordingRef.current;
+    if (active) {
+      try { active.video.pause(); } catch { /* already stopped */ }
+      try { if (active.recorder.state !== 'inactive') active.recorder.stop(); } catch { /* already stopped */ }
+    }
+    addLog('Cancellation requested.');
+  };
+
+  // Subtitles editor: if a .srt/.vtt (or plain-text) file is staged, load its
+  // text into the editor instead of treating it as media to preview.
+  const loadSubtitleFileIfApplicable = async (file: File) => {
+    if (tool.id !== 'subtitles-editor') return;
+    if (!/\.srt$/i.test(file.name) && !/\.vtt$/i.test(file.name) && file.type !== 'text/plain') return;
+    try {
+      const text = await file.text();
+      setSubtitleText(text);
+      setSubtitleFormat(/\.vtt$/i.test(file.name) ? 'vtt' : 'srt');
+      setSubtitleMode('edit');
+      addLog(`Loaded ${file.name} into the subtitle editor.`);
+    } catch {
+      addLog('Could not read the subtitle file as text.');
+    }
+  };
+
   // Load preview if initialFile is passed (supports both images and videos)
   useEffect(() => {
     if (uploadedFile) {
@@ -137,6 +239,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       setFilePreview(url);
       setConvertedBlobUrl(null);
       setConvertedFilename('');
+      void loadSubtitleFileIfApplicable(uploadedFile);
       return () => URL.revokeObjectURL(url);
     }
   }, [uploadedFile]);
@@ -955,6 +1058,18 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
         ext = 'gif';
         break;
       case 'video-to-audio':
+        // The extractor produces real WAV bytes (see handleExtractAudio).
+        ext = 'wav';
+        break;
+      case 'video-compressor':
+      case 'video-looper':
+        // MediaRecorder output is always WebM — MP4 cannot be produced
+        // in-browser, so the extension must say so.
+        ext = 'webm';
+        break;
+      case 'subtitles-editor':
+        ext = subtitleFormat;
+        break;
       case 'vocal-remover':
       case 'silence-remover':
         ext = 'mp3';
@@ -1012,136 +1127,339 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     addLog(`Downloaded processed file: ${nameWithoutExt}.${ext}`);
   };
 
-  const handleCreateGif = async () => {
-    if (!uploadedFile || !filePreview) return;
-    const gifEngine = (gifshot as any).default || gifshot;
-    setIsProcessing(true);
-    
-    // Static Image Input
-    if (uploadedFile.type.startsWith('image/')) {
-      addLog('Processing image to GIF...');
-      try {
-        const img = new Image();
-        img.src = filePreview;
-        img.onload = () => {
-          const frames: string[] = [];
-          const canvas = document.createElement('canvas');
-          canvas.width = 320;
-          canvas.height = Math.round(320 * (img.naturalHeight / img.naturalWidth)) || 240;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            for (let i = 0; i < 5; i++) {
-              ctx.clearRect(0, 0, canvas.width, canvas.height);
-              ctx.save();
-              const scale = 1 + (i * 0.02);
-              ctx.translate(canvas.width / 2, canvas.height / 2);
-              ctx.scale(scale, scale);
-              ctx.translate(-canvas.width / 2, -canvas.height / 2);
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              ctx.restore();
-              frames.push(canvas.toDataURL('image/jpeg', 0.8));
-            }
-            
-            addLog('Assembling GIF frames...');
-            gifEngine.createGIF({
-              images: frames,
-              gifWidth: canvas.width,
-              gifHeight: canvas.height,
-              interval: 0.2,
-              frameDuration: 2
-            }, (obj: any) => {
-              setIsProcessing(false);
-              if (!obj.error) {
-                setConvertedBlobUrl(obj.image);
-                setConvertedFilename(`animated_${uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'image'}.gif`);
-                setOutputText('GIF generation from image complete! Ready for download.');
-                addLog('GIF compiled successfully.');
-              } else {
-                addLog('GIF assembly failed.');
-                setOutputText(`GIF Error: ${obj.error}`);
-              }
-            });
-          }
-        };
-      } catch (e: any) {
-        setIsProcessing(false);
-        addLog('Image conversion failed.');
-        setOutputText(`Error: ${e.message}`);
-      }
-      return;
-    }
+  // --- Video media tools: shared browser-side helpers (worker B) ---------
+  // Seek with a timeout: the old code waited on `seeked` forever, so a
+  // corrupt file left the UI stuck on "Processing..." with no error.
+  const seekVideoTo = (video: HTMLVideoElement, time: number, timeoutMs = 10000): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const target = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.min(Math.max(0, time), Math.max(0, video.duration - 0.05))
+        : Math.max(0, time);
+      const timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error(`Seeking to ${target.toFixed(2)}s timed out after ${timeoutMs / 1000}s — the video may be corrupt.`));
+      }, timeoutMs);
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+      };
+      const onSeeked = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error('Video seek failed — the file may be corrupt or unsupported.')); };
+      video.addEventListener('seeked', onSeeked);
+      video.addEventListener('error', onError);
+      video.currentTime = target;
+    });
+  };
 
-    // Video Input
-    if (uploadedFile.type.startsWith('video/')) {
-      addLog('Extracting video frames...');
+  // Offscreen video element with metadata loaded, or a precise error.
+  const loadOffscreenVideo = (src: string, timeoutMs = 15000): Promise<HTMLVideoElement> => {
+    return new Promise((resolve, reject) => {
       const video = document.createElement('video');
-      video.src = filePreview;
       video.muted = true;
       video.playsInline = true;
       video.preload = 'auto';
-      
-      video.onloadedmetadata = async () => {
-        try {
-          const duration = video.duration || 3;
-          const frameCount = 10;
-          const interval = duration / frameCount;
-          const frames: string[] = [];
+      const timer = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Video metadata loading timed out — the file may be corrupt.'));
+      }, timeoutMs);
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+      };
+      const onLoaded = () => { cleanup(); resolve(video); };
+      const onError = () => { cleanup(); reject(new Error('The video file could not be loaded. It may be corrupt or in an unsupported format.')); };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('error', onError);
+      video.src = src;
+    });
+  };
 
+  const pickRecorderMimeType = (): string | undefined => {
+    if (typeof MediaRecorder === 'undefined') return undefined;
+    const candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    for (const candidate of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+      } catch { /* isTypeSupported can throw on malformed input in old browsers */ }
+    }
+    return undefined; // let the browser pick its default
+  };
+
+  // `captureStream` exists on media elements in browsers but is missing
+  // from this TS version's DOM lib — access it through a guarded cast.
+  const captureVideoStream = (video: HTMLVideoElement): MediaStream | null => {
+    const candidate = video as HTMLVideoElement & { captureStream?: () => MediaStream };
+    if (typeof candidate.captureStream !== 'function') return null;
+    return candidate.captureStream();
+  };
+
+  /**
+   * Records a playing video element via captureStream + MediaRecorder.
+   * `onEnded` is called on every `ended` event: return true to finish, false
+   * to restart from 0 (looper). Resolves with the recorded Blob; rejects on
+   * timeout, playback failure, recorder error, or user cancellation.
+   */
+  const recordVideoElement = (
+    video: HTMLVideoElement,
+    opts: {
+      mimeType?: string;
+      videoBitsPerSecond?: number;
+      maxSeconds: number;
+      onEnded: () => boolean;
+    },
+  ): Promise<Blob> => {
+    return new Promise<Blob>((resolve, reject) => {
+      if (typeof MediaRecorder === 'undefined') {
+        reject(new Error('MediaRecorder / video capture is not supported in this browser.'));
+        return;
+      }
+      let stream: MediaStream | null = null;
+      try {
+        stream = captureVideoStream(video);
+      } catch (e) {
+        reject(new Error(`Could not capture the video stream: ${e instanceof Error ? e.message : 'unknown error'}`));
+        return;
+      }
+      if (!stream) {
+        reject(new Error('Video capture is not supported in this browser.'));
+        return;
+      }
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          ...(opts.mimeType ? { mimeType: opts.mimeType } : {}),
+          ...(opts.videoBitsPerSecond ? { videoBitsPerSecond: opts.videoBitsPerSecond } : {}),
+        });
+      } catch (e) {
+        reject(new Error(`MediaRecorder could not start: ${e instanceof Error ? e.message : 'unsupported codec'}`));
+        return;
+      }
+      const chunks: Blob[] = [];
+      let settled = false;
+      const timer = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        teardown();
+        reject(new Error(`Recording timed out after ${opts.maxSeconds + 15}s.`));
+      }, (opts.maxSeconds + 15) * 1000);
+      const teardown = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener('ended', handleEnded);
+        activeRecordingRef.current = null;
+        stream.getTracks().forEach((track) => { try { track.stop(); } catch { /* already stopped */ } });
+      };
+      const handleEnded = () => {
+        if (settled) return;
+        if (cancelRequestedRef.current) {
+          settled = true;
+          teardown();
+          try { video.pause(); } catch { /* already stopped */ }
+          try { if (recorder.state !== 'inactive') recorder.stop(); } catch { /* already stopped */ }
+          reject(new Error('Cancelled by user.'));
+          return;
+        }
+        let done = true;
+        try { done = opts.onEnded(); } catch { done = true; }
+        if (done) {
+          settled = true;
+          teardown();
+          try { if (recorder.state !== 'inactive') recorder.stop(); } catch { /* already stopped */ }
+        } else {
+          video.currentTime = 0;
+          void video.play().catch(() => {
+            if (!settled) {
+              settled = true;
+              teardown();
+              reject(new Error('Video playback failed during recording.'));
+            }
+          });
+        }
+      };
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) chunks.push(event.data);
+      };
+      // onstop fires after stop(); the promise may already be settled by the
+      // timeout/cancel paths — resolve() after reject() is a harmless no-op.
+      recorder.onstop = () => {
+        resolve(new Blob(chunks, { type: opts.mimeType || 'video/webm' }));
+      };
+      recorder.onerror = () => {
+        if (settled) return;
+        settled = true;
+        teardown();
+        reject(new Error('MediaRecorder reported an error while recording.'));
+      };
+      activeRecordingRef.current = { recorder, video };
+      video.addEventListener('ended', handleEnded);
+      try {
+        recorder.start(250);
+      } catch (e) {
+        settled = true;
+        teardown();
+        reject(new Error(`MediaRecorder could not start: ${e instanceof Error ? e.message : 'unknown error'}`));
+        return;
+      }
+      void video.play().catch((e) => {
+        if (!settled) {
+          settled = true;
+          teardown();
+          reject(new Error(`Video playback failed: ${e instanceof Error ? e.message : 'autoplay was blocked'}`));
+        }
+      });
+    });
+  };
+
+  const createGifWithGifshot = (options: {
+    images: string[];
+    gifWidth: number;
+    gifHeight: number;
+    interval: number;
+    frameDuration: number;
+  }): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const gifEngine = (gifshot as any).default || gifshot;
+      if (!gifEngine || typeof gifEngine.createGIF !== 'function') {
+        reject(new Error('GIF encoder (gifshot) is unavailable in this browser.'));
+        return;
+      }
+      gifEngine.createGIF(options, (obj: any) => {
+        if (obj.error || !obj.image) {
+          reject(new Error(`GIF assembly failed: ${obj.error || 'no output produced'}`));
+        } else {
+          resolve(obj.image as string);
+        }
+      });
+    });
+  };
+
+  // Decodes a `data:image/gif;base64,...` URL to bytes without a network
+  // fetch, so the result can be byte-validated before claiming success.
+  const dataUrlToBytes = (dataUrl: string): Uint8Array => {
+    const comma = dataUrl.indexOf(',');
+    if (comma === -1) throw new Error('GIF encoder returned a malformed data URL.');
+    const binary = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  const handleCreateGif = async () => {
+    if (!uploadedFile || !filePreview) return;
+    const validation = validateVideoMediaFile(uploadedFile, ['image', 'video']);
+    if (!validation.ok) {
+      setOutputText(validation.message);
+      addLog('GIF input rejected.');
+      return;
+    }
+    cancelRequestedRef.current = false;
+    setIsProcessing(true);
+    try {
+      // Static Image Input — a still has no motion, so the GIF is 5 zoom
+      // frames of the same image. That is the honest limit of this input.
+      if (uploadedFile.type.startsWith('image/')) {
+        addLog('Processing image to GIF...');
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error('The image file could not be loaded. It may be corrupt or in an unsupported format.'));
+          image.src = filePreview;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = Math.round(320 * (img.naturalHeight / img.naturalWidth)) || 240;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Could not create canvas context.');
+        const frames: string[] = [];
+        for (let i = 0; i < 5; i++) {
+          if (cancelRequestedRef.current) throw new Error('Cancelled by user.');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.save();
+          const scale = 1 + i * 0.02;
+          ctx.translate(canvas.width / 2, canvas.height / 2);
+          ctx.scale(scale, scale);
+          ctx.translate(-canvas.width / 2, -canvas.height / 2);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
+          frames.push(canvas.toDataURL('image/jpeg', 0.8));
+        }
+        addLog('Assembling GIF frames...');
+        const dataUrl = await createGifWithGifshot({
+          images: frames,
+          gifWidth: canvas.width,
+          gifHeight: canvas.height,
+          interval: 0.2,
+          frameDuration: 2,
+        });
+        const gifBytes = dataUrlToBytes(dataUrl);
+        const info = validateGifBytes(gifBytes);
+        setConvertedBlobUrl(dataUrl);
+        setConvertedFilename(`animated_${uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'image'}.gif`);
+        setOutputText(`GIF created and verified!\nFrames: ${info.frames} (zoom effect on a still image)\nSize: ${info.width}x${info.height}px\nFile size: ${formatFileSize(gifBytes.length)}`);
+        addLog('GIF compiled and verified successfully.');
+        return;
+      }
+
+      // Video Input — sample real frames across (at most) the first 60s.
+      if (uploadedFile.type.startsWith('video/')) {
+        addLog('Extracting video frames...');
+        const video = await loadOffscreenVideo(filePreview);
+        try {
+          if (!Number.isFinite(video.duration) || video.duration <= 0) {
+            throw new Error('Could not read the video duration.');
+          }
+          if (video.videoWidth === 0 || video.videoHeight === 0) {
+            throw new Error('This video has no video track to sample frames from.');
+          }
+          const plan = planGifCapture(video.duration);
+          addLog(`Scanning video stream (${video.duration.toFixed(1)}s, sampling first ${plan.sampledSeconds.toFixed(1)}s)...`);
           const canvas = document.createElement('canvas');
           canvas.width = 320;
           canvas.height = Math.round(320 * (video.videoHeight / video.videoWidth)) || 240;
           const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('Could not create canvas context');
-
-          addLog(`Scanning video stream (${duration.toFixed(1)}s)...`);
-
-          for (let i = 0; i < frameCount; i++) {
-            video.currentTime = i * interval;
-            await new Promise((resolve) => {
-              const onSeeked = () => {
-                video.removeEventListener('seeked', onSeeked);
-                resolve(true);
-              };
-              video.addEventListener('seeked', onSeeked);
-            });
-
+          if (!ctx) throw new Error('Could not create canvas context.');
+          const frames: string[] = [];
+          for (let i = 0; i < plan.frameCount; i++) {
+            if (cancelRequestedRef.current) throw new Error('Cancelled by user.');
+            await seekVideoTo(video, i * plan.intervalSeconds);
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             frames.push(canvas.toDataURL('image/jpeg', 0.8));
-            addLog(`Captured frame ${i + 1}/${frameCount}...`);
+            addLog(`Captured frame ${i + 1}/${plan.frameCount}...`);
           }
-
           addLog('Compiling animation loops...');
-          gifEngine.createGIF({
+          const dataUrl = await createGifWithGifshot({
             images: frames,
             gifWidth: canvas.width,
             gifHeight: canvas.height,
             interval: 0.15,
-            frameDuration: 1.5
-          }, (obj: any) => {
-            setIsProcessing(false);
-            if (!obj.error) {
-              setConvertedBlobUrl(obj.image);
-              setConvertedFilename(`converted_${uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'video'}.gif`);
-              setOutputText('GIF compilation complete! Your animated GIF is ready for download.');
-              addLog('Animated GIF successfully compiled.');
-            } else {
-              addLog('GIF assembly failed.');
-              setOutputText(`GIF Error: ${obj.error}`);
-            }
+            frameDuration: 1.5,
           });
-
-        } catch (e: any) {
-          setIsProcessing(false);
-          addLog('Frame extraction failed.');
-          setOutputText(`Error: ${e.message}`);
+          const gifBytes = dataUrlToBytes(dataUrl);
+          const info = validateGifBytes(gifBytes);
+          setConvertedBlobUrl(dataUrl);
+          setConvertedFilename(`converted_${uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'video'}.gif`);
+          setOutputText(`GIF created and verified!\nFrames: ${info.frames} sampled from the first ${plan.sampledSeconds.toFixed(1)}s of ${video.duration.toFixed(1)}s\nSize: ${info.width}x${info.height}px\nFile size: ${formatFileSize(gifBytes.length)}`);
+          addLog('Animated GIF successfully compiled and verified.');
+        } finally {
+          try { video.pause(); video.removeAttribute('src'); video.load(); } catch { /* already torn down */ }
         }
-      };
-      
-      video.load();
-      return;
-    }
+        return;
+      }
 
-    addLog('Unsupported file type for GIF conversion.');
+      setOutputText('Unsupported file type for GIF conversion. Only images and videos are supported.');
+    } catch (e: any) {
+      const message = e?.message || 'GIF creation failed.';
+      if (message === 'Cancelled by user.') {
+        setOutputText('GIF creation cancelled.');
+        addLog('GIF creation cancelled by user.');
+      } else {
+        addLog('GIF creation failed.');
+        setOutputText(`GIF Error: ${message}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleCompressImage = () => {
@@ -1224,94 +1542,284 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
 
   const handleExtractAudio = async () => {
     if (!uploadedFile) return;
+    const validation = validateVideoMediaFile(uploadedFile, ['video', 'audio']);
+    if (!validation.ok) {
+      setOutputText(validation.message);
+      addLog('Audio extraction rejected.');
+      return;
+    }
+    cancelRequestedRef.current = false;
     setIsProcessing(true);
-    addLog('Decoding video audio track...');
+    let audioCtx: AudioContext | null = null;
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtor) throw new Error('Web Audio is not supported in this browser.');
+      audioCtx = new AudioCtor();
+      addLog('Decoding video audio track...');
       const arrayBuffer = await uploadedFile.arrayBuffer();
-      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      if (cancelRequestedRef.current) throw new Error('Cancelled by user.');
+      let decodedBuffer: AudioBuffer;
+      try {
+        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      } catch {
+        throw new Error('No decodable audio track found. The file may be video-only, or use an audio codec this browser cannot decode.');
+      }
+      if (decodedBuffer.duration > VIDEO_MEDIA_LIMITS.maxAudioDurationSeconds) {
+        throw new Error(`Audio is ${(decodedBuffer.duration / 60).toFixed(1)} minutes long — this tool supports up to ${VIDEO_MEDIA_LIMITS.maxAudioDurationSeconds / 60} minutes.`);
+      }
+      if (decodedBuffer.numberOfChannels < 1) throw new Error('Decoded audio has no channels.');
       addLog('Compiling audio stream...');
-      
-      const startSample = 0;
-      const endSample = decodedBuffer.length;
-      const numChannels = decodedBuffer.numberOfChannels;
-      const sampleRate = decodedBuffer.sampleRate;
-      const subLength = endSample - startSample;
-
-      const buffer = new ArrayBuffer(44 + subLength * 2 * numChannels);
-      const view = new DataView(buffer);
-
-      const writeString = (view: DataView, offset: number, string: string) => {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i));
-        }
-      };
-
-      writeString(view, 0, 'RIFF');
-      view.setUint32(4, 36 + subLength * 2 * numChannels, true);
-      writeString(view, 8, 'WAVE');
-      writeString(view, 12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, numChannels, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2 * numChannels, true);
-      view.setUint16(32, 2 * numChannels, true);
-      view.setUint16(34, 16, true);
-      writeString(view, 36, 'data');
-      view.setUint32(40, subLength * 2 * numChannels, true);
-
-      let offset = 44;
-      const channelData: Float32Array[] = [];
-      for (let channel = 0; channel < numChannels; channel++) {
-        channelData.push(decodedBuffer.getChannelData(channel));
+      const channels: Float32Array[] = [];
+      for (let channel = 0; channel < decodedBuffer.numberOfChannels; channel++) {
+        channels.push(decodedBuffer.getChannelData(channel));
       }
-
-      for (let i = 0; i < subLength; i++) {
-        for (let channel = 0; channel < numChannels; channel++) {
-          const sample = Math.max(-1, Math.min(1, channelData[channel][startSample + i]));
-          const pcmVal = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-          view.setInt16(offset, pcmVal, true);
-          offset += 2;
-        }
+      const wavBuffer = encodeWavPcm16(channels, decodedBuffer.sampleRate);
+      // Verify the actual bytes before claiming success: header, channel
+      // count, sample rate, and data length must all check out.
+      const wavInfo = parseWavHeader(new Uint8Array(wavBuffer));
+      if (Math.abs(wavInfo.durationSeconds - decodedBuffer.duration) > 0.05) {
+        throw new Error('WAV verification failed: header duration does not match the decoded audio.');
       }
-
-      const wavBlob = new Blob([view], { type: 'audio/wav' });
+      const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
       const url = URL.createObjectURL(wavBlob);
-      
       const nameWithoutExt = uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'audio';
       setConvertedBlobUrl(url);
       setConvertedFilename(`${nameWithoutExt}.wav`);
-      setOutputText(`Audio track extracted successfully!\nFormat: WAV Stereo Uncompressed\nDuration: ${decodedBuffer.duration.toFixed(1)}s\nSample Rate: ${decodedBuffer.sampleRate} Hz`);
-      addLog('Audio track extracted successfully.');
-      setIsProcessing(false);
+      const channelLabel = wavInfo.channels === 1 ? 'Mono' : wavInfo.channels === 2 ? 'Stereo' : `${wavInfo.channels}-channel`;
+      setOutputText(`Audio track extracted and verified!\nFormat: WAV PCM 16-bit, ${channelLabel}\nDuration: ${wavInfo.durationSeconds.toFixed(1)}s\nSample Rate: ${wavInfo.sampleRate} Hz\nFile size: ${formatFileSize(wavBlob.size)}`);
+      addLog('Audio track extracted and verified successfully.');
     } catch (err: any) {
       console.error(err);
-      addLog('Audio decoding failed.');
-      setOutputText(`Decoding Error: ${err.message || 'The audio track format could not be decoded.'}`);
+      const message = err?.message || 'The audio track format could not be decoded.';
+      if (message === 'Cancelled by user.') {
+        setOutputText('Audio extraction cancelled.');
+        addLog('Audio extraction cancelled by user.');
+      } else {
+        addLog('Audio decoding failed.');
+        setOutputText(`Decoding Error: ${message}`);
+      }
+    } finally {
+      if (audioCtx) {
+        try { await audioCtx.close(); } catch { /* already closed */ }
+      }
       setIsProcessing(false);
     }
   };
 
-  const handleExtractFrame = () => {
-    const video = document.getElementById('workspace-video-preview') as HTMLVideoElement;
-    if (!video) return;
-    setIsProcessing(true);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/jpeg', 0.95);
-      
-      setConvertedBlobUrl(url);
-      setConvertedFilename(`frame_${video.currentTime.toFixed(2)}.jpg`);
-      addLog(`Extracted frame at ${video.currentTime.toFixed(2)}s.`);
-      setOutputText(`Frame extracted successfully at ${video.currentTime.toFixed(2)}s.\nResolution: ${canvas.width}x${canvas.height}px.`);
+  const handleExtractFrame = async () => {
+    const video = document.getElementById('workspace-video-preview') as HTMLVideoElement | null;
+    if (!video) {
+      setOutputText('No video preview is loaded. Upload a video file first.');
+      return;
     }
-    setIsProcessing(false);
+    if (!uploadedFile || !uploadedFile.type.startsWith('video/')) {
+      setOutputText('Frame extraction needs an uploaded video file.');
+      return;
+    }
+    cancelRequestedRef.current = false;
+    setIsProcessing(true);
+    const previousTime = video.currentTime;
+    try {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        throw new Error('Video metadata is not loaded yet. Wait for the preview to load, then try again.');
+      }
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error('This video has no video track to capture a frame from.');
+      }
+      const target = Math.min(Math.max(0, frameTimestamp), video.duration - 0.05);
+      addLog(`Seeking to ${target.toFixed(2)}s...`);
+      await seekVideoTo(video, target);
+      if (cancelRequestedRef.current) throw new Error('Cancelled by user.');
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create canvas context.');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+      if (!blob || blob.size === 0) throw new Error('JPEG encoding failed — the captured frame was empty.');
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      // Verify the actual JPEG bytes (markers + dimensions) before success.
+      const info = validateJpegBytes(bytes);
+      if (info.width !== video.videoWidth || info.height !== video.videoHeight) {
+        throw new Error(`Captured JPEG is ${info.width}x${info.height}px but the video is ${video.videoWidth}x${video.videoHeight}px.`);
+      }
+      setConvertedBlobUrl(URL.createObjectURL(blob));
+      setConvertedFilename(`frame_${target.toFixed(2)}s.jpg`);
+      addLog(`Extracted frame at ${target.toFixed(2)}s.`);
+      setOutputText(`Frame extracted and verified at ${target.toFixed(2)}s.\nResolution: ${info.width}x${info.height}px\nFile size: ${formatFileSize(bytes.length)}`);
+    } catch (e: any) {
+      const message = e?.message || 'Frame extraction failed.';
+      if (message === 'Cancelled by user.') {
+        setOutputText('Frame extraction cancelled.');
+        addLog('Frame extraction cancelled by user.');
+      } else {
+        addLog('Frame extraction failed.');
+        setOutputText(`Frame Error: ${message}`);
+      }
+    } finally {
+      setIsProcessing(false);
+      try { video.currentTime = previousTime; } catch { /* best-effort restore */ }
+    }
+  };
+
+  // --- New video tools (worker B): compressor, looper, subtitles ---------
+  // Compressor: MediaRecorder re-encode at a lower bitrate. Output is
+  // always WebM — no browser can produce MP4, and the UI says so instead
+  // of promising an MP4.
+  const handleCompressVideo = async () => {
+    if (!uploadedFile || !filePreview) return;
+    const validation = validateVideoMediaFile(uploadedFile, ['video']);
+    if (!validation.ok) {
+      setOutputText(validation.message);
+      addLog('Video compression rejected.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setOutputText('MediaRecorder is not supported in this browser, so in-browser video compression is unavailable.');
+      addLog('Video compression unavailable: no MediaRecorder.');
+      return;
+    }
+    cancelRequestedRef.current = false;
+    setIsProcessing(true);
+    let video: HTMLVideoElement | null = null;
+    try {
+      video = await loadOffscreenVideo(filePreview);
+      if (!Number.isFinite(video.duration) || video.duration <= 0) {
+        throw new Error('Could not read the video duration.');
+      }
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error('This file has no video track to compress.');
+      }
+      if (video.duration > VIDEO_MEDIA_LIMITS.maxRecordSeconds) {
+        throw new Error(`Video is ${video.duration.toFixed(0)}s long — compression supports up to ${VIDEO_MEDIA_LIMITS.maxRecordSeconds}s.`);
+      }
+      const targetBps = estimateCompressedBitrate(uploadedFile.size, video.duration, compressPct);
+      const mimeType = pickRecorderMimeType();
+      addLog(`Re-encoding at ~${Math.round(targetBps / 1000)} kbps...`);
+      video.currentTime = 0;
+      const blob = await recordVideoElement(video, {
+        mimeType,
+        videoBitsPerSecond: targetBps,
+        maxSeconds: video.duration,
+        onEnded: () => true,
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      validateWebmBytes(bytes);
+      const base = uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'video';
+      setConvertedBlobUrl(URL.createObjectURL(blob));
+      setConvertedFilename(`compressed_${base}.webm`);
+      const saved = uploadedFile.size - bytes.length;
+      const verdict = saved > 0
+        ? `Saved ${formatFileSize(saved)} (${Math.round((saved / uploadedFile.size) * 100)}% smaller).`
+        : `Output (${formatFileSize(bytes.length)}) is NOT smaller than the original (${formatFileSize(uploadedFile.size)}). The source is already efficiently encoded — try a lower target percentage.`;
+      setOutputText(`Video re-encoded and verified!\nFormat: WebM (${mimeType || 'browser default'})\nTarget bitrate: ~${Math.round(targetBps / 1000)} kbps\nOriginal: ${formatFileSize(uploadedFile.size)} → Output: ${formatFileSize(bytes.length)}\n${verdict}\nNote: MP4 output is not possible in-browser — the result is a valid WebM file.`);
+      addLog('Video compressed and verified successfully.');
+    } catch (e: any) {
+      const message = e?.message || 'Video compression failed.';
+      if (message === 'Cancelled by user.') {
+        setOutputText('Video compression cancelled.');
+        addLog('Video compression cancelled by user.');
+      } else {
+        addLog('Video compression failed.');
+        setOutputText(`Compression Error: ${message}`);
+      }
+    } finally {
+      if (video) {
+        try { video.pause(); video.removeAttribute('src'); video.load(); } catch { /* already torn down */ }
+      }
+      setIsProcessing(false);
+    }
+  };
+
+  // Looper: plays the clip N times through MediaRecorder into one WebM.
+  const handleLoopVideo = async () => {
+    if (!uploadedFile || !filePreview) return;
+    const validation = validateVideoMediaFile(uploadedFile, ['video']);
+    if (!validation.ok) {
+      setOutputText(validation.message);
+      addLog('Video looping rejected.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setOutputText('MediaRecorder is not supported in this browser, so in-browser video looping is unavailable.');
+      addLog('Video looping unavailable: no MediaRecorder.');
+      return;
+    }
+    cancelRequestedRef.current = false;
+    setIsProcessing(true);
+    let video: HTMLVideoElement | null = null;
+    try {
+      video = await loadOffscreenVideo(filePreview);
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error('This file has no video track to loop.');
+      }
+      const plan = planLoopOutput(video.duration, loopCount);
+      const mimeType = pickRecorderMimeType();
+      let loopsDone = 0;
+      addLog(`Recording ${plan.loopCount} loops (${plan.totalSeconds.toFixed(1)}s total)...`);
+      video.currentTime = 0;
+      const blob = await recordVideoElement(video, {
+        mimeType,
+        maxSeconds: plan.totalSeconds,
+        onEnded: () => {
+          loopsDone += 1;
+          addLog(`Loop ${loopsDone}/${plan.loopCount} recorded...`);
+          return loopsDone >= plan.loopCount;
+        },
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      validateWebmBytes(bytes);
+      const base = uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'video';
+      setConvertedBlobUrl(URL.createObjectURL(blob));
+      setConvertedFilename(`looped_${plan.loopCount}x_${base}.webm`);
+      setOutputText(`Looped video created and verified!\nFormat: WebM (${mimeType || 'browser default'})\nLoops: ${plan.loopCount}x ${video.duration.toFixed(1)}s = ${plan.totalSeconds.toFixed(1)}s expected duration\nOriginal: ${formatFileSize(uploadedFile.size)} → Output: ${formatFileSize(bytes.length)}\nNote: output duration is the expected value (loops × clip length); exact frame timing needs a real-browser playback check.`);
+      addLog('Looped video created and verified successfully.');
+    } catch (e: any) {
+      const message = e?.message || 'Video looping failed.';
+      if (message === 'Cancelled by user.') {
+        setOutputText('Video looping cancelled.');
+        addLog('Video looping cancelled by user.');
+      } else {
+        addLog('Video looping failed.');
+        setOutputText(`Loop Error: ${message}`);
+      }
+    } finally {
+      if (video) {
+        try { video.pause(); video.removeAttribute('src'); video.load(); } catch { /* already torn down */ }
+      }
+      setIsProcessing(false);
+    }
+  };
+
+  // Subtitles editor — honest text-subtitle scope only. Burning subtitles
+  // into video is NOT possible in-browser and is never claimed: this parses,
+  // validates, builds, and exports SRT/VTT sidecar files.
+  const handleSubtitles = () => {
+    setIsProcessing(true);
+    try {
+      let cues: SubtitleCue[];
+      if (subtitleMode === 'build') {
+        cues = buildTimedCues(subtitleText.split(/\r?\n/), subtitleCueSeconds, subtitleStartOffset);
+      } else {
+        if (!subtitleText.trim()) {
+          throw new Error('Paste or load subtitle text first — or switch to "Build from lines" and type one subtitle per line.');
+        }
+        cues = parseSubtitleText(subtitleText, subtitleFormat);
+      }
+      const serialized = formatSubtitleText(cues, subtitleFormat);
+      const blob = new Blob([serialized], { type: subtitleFormat === 'vtt' ? 'text/vtt' : 'text/plain' });
+      setConvertedBlobUrl(URL.createObjectURL(blob));
+      setConvertedFilename(`subtitles.${subtitleFormat}`);
+      const lastEnd = cues[cues.length - 1].endMs;
+      setOutputText(`Subtitle file ready (${cues.length} cue${cues.length === 1 ? '' : 's'}).\nFormat: ${subtitleFormat.toUpperCase()}\nSpan: ${formatSubtitleTimestamp(0, subtitleFormat)} → ${formatSubtitleTimestamp(lastEnd, subtitleFormat)}\nMode: ${subtitleMode === 'build' ? 'built from plain lines' : 'validated + re-exported'}\nNote: this creates a sidecar .${subtitleFormat} file. Burning subtitles into a video is not possible in-browser and is not attempted.`);
+      addLog(`Built ${subtitleFormat.toUpperCase()} subtitles (${cues.length} cues).`);
+    } catch (e: any) {
+      addLog('Subtitle build failed.');
+      setOutputText(`Subtitle Error: ${e?.message || 'Could not build subtitles.'}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleGenerateAscii = () => {
@@ -1357,8 +1865,27 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     };
   };
 
-  const handleApplyWatermark = () => {
+  const handleApplyWatermark = async () => {
     if (!uploadedFile || !filePreview) return;
+    // Video: real re-encode with the text drawn on every frame (WebM output).
+    if (uploadedFile.type.startsWith('video/')) {
+      await runVideoTransform(
+        'Watermark',
+        {
+          watermark: {
+            text: watermarkText,
+            position: watermarkPosition as WatermarkPosition,
+            opacityPercent: watermarkOpacity,
+          },
+        },
+        'watermarked',
+        (result) => describeVideoResult(
+          result,
+          `Watermark applied!\nText: "${watermarkText}"\nPosition: ${watermarkPosition} — verified visible on the video (pixel check passed).`
+        )
+      );
+      return;
+    }
     setIsProcessing(true);
     addLog('Adding watermark overlay...');
     const img = new Image();
@@ -1409,22 +1936,51 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     };
   };
 
-  const handleApplySpeed = () => {
+  const handleApplySpeed = async () => {
     if (!uploadedFile) return;
-    addLog(`Setting video playback speed to ${playbackSpeed}x...`);
-    setOutputText(`Speed Adjustment Saved!\nPlayback Speed: ${playbackSpeed}x\nPreview player has been updated. Click download to fetch the adjusted video payload.`);
-    addLog(`Adjusted playback rate to ${playbackSpeed}x.`);
+    // Real re-encode: the video plays at the chosen rate while the canvas
+    // stream is recorded, so the output file really is shorter/longer.
+    await runVideoTransform(
+      'Speed change',
+      { playbackRate: playbackSpeed },
+      `speed-${playbackSpeed}x`,
+      (result) => describeVideoResult(
+        result,
+        `Speed changed to ${playbackSpeed}x!\nExpected output length: ${result.expectedDurationSeconds.toFixed(1)}s (original ÷ ${playbackSpeed}).`
+      )
+    );
   };
 
-  const handleMuteVideo = () => {
+  const handleMuteVideo = async () => {
     if (!uploadedFile) return;
-    addLog('Muting video tracks...');
-    setOutputText('Audio channels stripped successfully!\nMuted video stream is ready for download.');
-    addLog('Muted video tracks successfully.');
+    // Real re-encode into a video-only stream: no audio track is fed to the
+    // recorder, so the output file has no audio by construction.
+    await runVideoTransform(
+      'Mute',
+      { mute: true },
+      'muted',
+      (result) => describeVideoResult(
+        result,
+        'Video muted!',
+        'Audio: removed — the output was recorded from a video-only stream, so it has no audio track.'
+      )
+    );
   };
 
-  const handleRotateMedia = () => {
+  const handleRotateMedia = async () => {
     if (!uploadedFile || !filePreview) return;
+    // Video: real re-encode with the canvas rotated (WebM output, axes swap
+    // for 90°/270°). Images keep the existing JPEG path below.
+    if (uploadedFile.type.startsWith('video/')) {
+      const angle = rotationAngle === 90 || rotationAngle === 180 || rotationAngle === 270 ? rotationAngle : 90;
+      await runVideoTransform(
+        'Rotate',
+        { rotation: angle },
+        `rotated-${angle}`,
+        (result) => describeVideoResult(result, `Video rotated by ${angle}°!`)
+      );
+      return;
+    }
     setIsProcessing(true);
     addLog(`Rotating media by ${rotationAngle}°...`);
     const img = new Image();
@@ -1451,8 +2007,24 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     };
   };
 
-  const handleResizeMedia = () => {
+  const handleResizeMedia = async () => {
     if (!uploadedFile || !filePreview) return;
+    // Video: real re-encode at the requested resolution (WebM output).
+    // With aspect lock the height is computed from the source dimensions.
+    // Images keep the existing JPEG path below.
+    if (uploadedFile.type.startsWith('video/')) {
+      await runVideoTransform(
+        'Resize',
+        {
+          targetWidth: resizeWidth,
+          targetHeight: resizeHeight,
+          lockAspectRatio,
+        },
+        `resized-${resizeWidth}x${resizeHeight}`,
+        (result) => describeVideoResult(result, `Video resized to ${result.width}x${result.height}px!`)
+      );
+      return;
+    }
     setIsProcessing(true);
     addLog(`Resizing media to ${resizeWidth}x${resizeHeight}px...`);
     const img = new Image();
@@ -1602,6 +2174,99 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     };
     reader.readAsText(uploadedFile);
   };
+
+  // Subtitles editor UI, shared by the no-file and staged-file branches.
+  // Text-first tool: the editor works without any upload; staging a .srt /
+  // .vtt file just pre-fills it. Burning subtitles into video is not
+  // possible in-browser, so the copy below says so instead of implying it.
+  const renderSubtitleEditor = () => (
+    <div className="flex flex-col gap-3 text-left">
+      <p className="text-[10px] leading-relaxed text-gray-500 font-mono">
+        Edit an SRT/VTT file or build timed subtitles from plain lines. This exports a sidecar subtitle file — burning subtitles into a video is not supported in-browser.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Mode</label>
+          <select
+            value={subtitleMode}
+            onChange={(e) => setSubtitleMode(e.target.value as 'edit' | 'build')}
+            className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono cursor-pointer"
+          >
+            <option value="edit">Edit SRT / VTT</option>
+            <option value="build">Build from lines</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Export Format</label>
+          <select
+            value={subtitleFormat}
+            onChange={(e) => setSubtitleFormat(e.target.value as 'srt' | 'vtt')}
+            className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono cursor-pointer"
+          >
+            <option value="srt">SRT</option>
+            <option value="vtt">VTT</option>
+          </select>
+        </div>
+      </div>
+      {subtitleMode === 'build' && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Seconds Per Subtitle</label>
+            <input
+              type="number"
+              min="0.5"
+              max="30"
+              step="0.5"
+              value={subtitleCueSeconds}
+              onChange={(e) => setSubtitleCueSeconds(Math.min(30, Math.max(0.5, parseFloat(e.target.value) || 3)))}
+              className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Start Offset (s)</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={subtitleStartOffset}
+              onChange={(e) => setSubtitleStartOffset(Math.max(0, parseFloat(e.target.value) || 0))}
+              className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono"
+            />
+          </div>
+        </div>
+      )}
+      <textarea
+        value={subtitleText}
+        onChange={(e) => setSubtitleText(e.target.value)}
+        rows={10}
+        placeholder={subtitleMode === 'build' ? 'One subtitle per line — each line becomes one timed cue.' : 'Paste SRT or VTT text here, or drop a .srt / .vtt file above.'}
+        className="bg-black border border-[#222] text-white p-3 rounded-lg text-xs font-mono focus:border-[#10b981]/60 focus:outline-none w-full"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => handleSubtitles()}
+          disabled={isProcessing}
+          className={`py-2 text-xs font-bold rounded uppercase tracking-wider transition-all cursor-pointer ${isProcessing ? 'bg-[#151515] border border-[#222] text-gray-500 cursor-wait' : 'bg-[#10b981] text-black hover:bg-[#059669]'}`}
+        >
+          {isProcessing ? 'Processing...' : subtitleMode === 'build' ? 'Build Subtitles' : 'Validate & Export'}
+        </button>
+        <button
+          onClick={handleDownloadResult}
+          disabled={isProcessing || !convertedBlobUrl}
+          className={`py-2 text-xs font-bold rounded uppercase tracking-wider transition-all cursor-pointer border ${isProcessing || !convertedBlobUrl ? 'bg-[#151515] border-[#222] text-gray-600 opacity-50 cursor-not-allowed' : 'bg-[#10b981] border-[#10b981] text-black hover:bg-[#059669]'}`}
+        >
+          Download Result
+        </button>
+      </div>
+      {outputText && (
+        <div className="bg-black border border-[#222] p-4 rounded-xl text-left">
+          <pre className="text-xs font-mono text-[#10b981] whitespace-pre-line leading-relaxed">
+            {outputText}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="bg-[#0d0d0d] border border-[#1f1f1f] rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row min-h-[640px] relative animate-in fade-in duration-300">
@@ -2926,6 +3591,11 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
               {/* Image Drag and Drop block */}
               <div className="max-w-xl mx-auto w-full">
                 {!uploadedFile ? (
+                  tool.id === 'subtitles-editor' ? (
+                    <div className="bg-[#090909] border border-[#222] rounded-xl p-4 flex flex-col gap-4">
+                      {renderSubtitleEditor()}
+                    </div>
+                  ) : (
                   <div
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
@@ -2954,6 +3624,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                     <p className="text-xs text-white font-sans">Drag & drop or click to upload target media file</p>
                     <p className="text-[9px] text-gray-500 mt-1">Ready for real-time localized GPU processing sandbox</p>
                   </div>
+                  )
                 ) : (
                   <div className="bg-[#090909] border border-[#222] rounded-xl p-4 flex flex-col gap-4">
                     <div className="flex items-center justify-between border-b border-[#1c1c1c] pb-2">
@@ -2969,7 +3640,13 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                             transform: tool.id === 'video-rotator' ? `rotate(${rotationAngle}deg)` : 'none'
                           }}
                         >
-                          {uploadedFile?.type.startsWith('video/') ? (
+                          {tool.id === 'subtitles-editor' ? (
+                            <div className="flex flex-col items-center justify-center gap-1 px-4 text-center">
+                              <FileText className="w-6 h-6 text-gray-500" />
+                              <p className="text-[11px] text-gray-400 font-mono">Subtitle file staged — edit it below.</p>
+                              <p className="text-[9px] text-gray-600 font-mono">No video preview for this text tool.</p>
+                            </div>
+                          ) : uploadedFile?.type.startsWith('video/') ? (
                             <video 
                               id="workspace-video-preview"
                               src={filePreview} 
@@ -3075,6 +3752,67 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                       </div>
                     )}
 
+                    {/* Frame Extractor Timestamp */}
+                    {tool.id === 'frame-extractor' && (
+                      <div className="flex flex-col gap-1.5 text-left bg-black/40 border border-[#1a1a1a] p-3 rounded-lg">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex justify-between font-mono">
+                          <span>Timestamp (seconds)</span>
+                          <span className="text-[#10b981] font-bold">{frameTimestamp.toFixed(2)}s</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={frameTimestamp}
+                          onChange={(e) => setFrameTimestamp(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono"
+                        />
+                        <p className="text-[9px] text-gray-500 font-mono">Frame is captured at this exact timestamp (clamped to the video length). 0 = start of the video.</p>
+                      </div>
+                    )}
+
+                    {/* Video Compressor Target */}
+                    {tool.id === 'video-compressor' && (
+                      <div className="flex flex-col gap-1.5 text-left bg-black/40 border border-[#1a1a1a] p-3 rounded-lg">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex justify-between font-mono">
+                          <span>Target Bitrate ({compressPct}% of original)</span>
+                          <span className="text-[#10b981] font-bold">{compressPct}%</span>
+                        </label>
+                        <input
+                          type="range"
+                          min="10"
+                          max="90"
+                          value={compressPct}
+                          onChange={(e) => setCompressPct(parseInt(e.target.value) || 50)}
+                          className="w-full accent-[#10b981] cursor-pointer"
+                        />
+                        <p className="text-[9px] text-gray-500 font-mono">Re-encodes in-browser via MediaRecorder. Output is WebM (max 5 min, 200MB input) — MP4 output is not possible in-browser. The result panel reports the real size change.</p>
+                      </div>
+                    )}
+
+                    {/* Video Looper Count */}
+                    {tool.id === 'video-looper' && (
+                      <div className="flex flex-col gap-1.5 text-left bg-black/40 border border-[#1a1a1a] p-3 rounded-lg">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex justify-between font-mono">
+                          <span>Loop Count</span>
+                          <span className="text-[#10b981] font-bold">{loopCount}x</span>
+                        </label>
+                        <input
+                          type="number"
+                          min="2"
+                          max="10"
+                          step="1"
+                          value={loopCount}
+                          onChange={(e) => setLoopCount(Math.min(10, Math.max(2, parseInt(e.target.value) || 3)))}
+                          className="bg-black border border-[#222] text-white p-2 rounded text-xs focus:outline-none font-mono"
+                        />
+                        <p className="text-[9px] text-gray-500 font-mono">Chains the clip back-to-back into one WebM file (2–10 loops, max 5 min total). Output duration is loops × clip length.</p>
+                      </div>
+                    )}
+
+                    {/* Subtitles Editor */}
+                    {tool.id === 'subtitles-editor' && renderSubtitleEditor()}
+
                     {/* Watermark Adder Controls */}
                     {tool.id === 'video-watermark' && (
                       <div className="flex flex-col gap-3.5 text-left bg-black/40 border border-[#1a1a1a] p-4 rounded-xl">
@@ -3117,6 +3855,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                             />
                           </div>
                         </div>
+                        <p className="text-[10px] text-gray-500">Video output is a re-encoded WebM file (max 5 min / 150 MB). The watermark is checked to be actually visible before export.</p>
                       </div>
                     )}
 
@@ -3139,6 +3878,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                             </button>
                           ))}
                         </div>
+                        <p className="text-[10px] text-gray-500">Output is a re-encoded WebM file (max 5 min / 150 MB) — the preview speed is not the export.</p>
                       </div>
                     )}
 
@@ -3161,6 +3901,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                             </button>
                           ))}
                         </div>
+                        <p className="text-[10px] text-gray-500">Output is a re-encoded WebM file (max 5 min / 150 MB). 90°/270° swaps the output dimensions.</p>
                       </div>
                     )}
 
@@ -3207,6 +3948,9 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                           />
                           <span className="text-[10px] text-gray-400 font-mono">Lock Aspect Ratio</span>
                         </label>
+                        {tool.id === 'video-resizer' && (
+                          <p className="text-[10px] text-gray-500">Video output is a re-encoded WebM file (max 5 min / 150 MB, longest side ≤ 1920 px). Images export as JPEG.</p>
+                        )}
                       </div>
                     )}
 
@@ -3303,6 +4047,12 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                             handleExtractAudio();
                           } else if (tool.id === 'frame-extractor') {
                             handleExtractFrame();
+                          } else if (tool.id === 'video-compressor') {
+                            handleCompressVideo();
+                          } else if (tool.id === 'video-looper') {
+                            handleLoopVideo();
+                          } else if (tool.id === 'subtitles-editor') {
+                            handleSubtitles();
                           } else if (tool.id === 'ascii-art') {
                             handleGenerateAscii();
                           } else if (tool.id === 'video-watermark') {
@@ -3331,7 +4081,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                       >
                         {isProcessing ? 'Processing...' : 
                          tool.id === 'exif-viewer' ? 'Extract Metadata' : 
-                         tool.id === 'frame-extractor' ? 'Extract Frame' : 
+                         tool.id === 'frame-extractor' ? 'Extract Frame' :
+                         tool.id === 'video-compressor' ? 'Compress Video' :
+                         tool.id === 'video-looper' ? 'Loop Video' :
+                         tool.id === 'subtitles-editor' ? 'Export Subtitles' :
                          tool.id === 'video-watermark' ? 'Apply Watermark' :
                          tool.id === 'meme-generator' ? 'Generate Meme' : 'Convert File'}
                       </button>
@@ -3347,6 +4100,30 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                         Download Result
                       </button>
                     </div>
+
+                    {/* Video re-encode progress (worker C tools). */}
+                    {isVideoJob && videoProgress !== null && (
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold text-[#10b981]">
+                          <span>Re-encoding video in your browser…</span>
+                          <span>{videoProgress}%</span>
+                        </div>
+                        <div className="w-full bg-[#1a1a1a] rounded-full h-2 overflow-hidden">
+                          <div className="bg-[#10b981] h-full transition-all duration-300" style={{ width: `${videoProgress}%` }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Long-running media jobs can be cancelled mid-flight
+                        (seek loop, decode, or MediaRecorder capture). */}
+                    {isProcessing && ['gif-maker', 'video-to-audio', 'frame-extractor', 'video-compressor', 'video-looper', 'video-speed', 'video-muter', 'video-rotator', 'video-resizer', 'video-watermark'].includes(tool.id) && (
+                      <button
+                        onClick={() => { cancelProcessing(); videoAbortRef.current?.abort(); }}
+                        className="w-full py-2 text-xs font-bold rounded uppercase tracking-wider border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
 
                     {outputText && (
                       <div className="bg-black border border-[#222] p-4 rounded-xl text-left">

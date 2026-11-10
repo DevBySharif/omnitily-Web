@@ -1,8 +1,8 @@
 # Tool status policy
 
-`src/toolsData.ts` is the catalog source of truth. Its 113 stable IDs drive routes, cards, search, categories, pins, badges, component selection, SEO, sitemap inclusion, formats, and processing disclosures.
+`src/toolsData.ts` is the catalog source of truth. Its 117 stable IDs drive routes, cards, search, categories, pins, badges, component selection, SEO, sitemap inclusion, formats, and processing disclosures.
 
-In the zero-cost production catalog the totals are 12 functional, 30 beta, 51 coming soon, and 20 disabled. Security and operational requirements take precedence over retaining Beta status; `social-downloader`, `video-splitter`, and `audio-transcriber` are disabled.
+In the zero-cost production catalog the totals are 37 functional, 24 beta, 43 coming soon, and 13 disabled. Security and operational requirements take precedence over retaining Beta status; `social-downloader` and `audio-transcriber` are disabled.
 
 | Status | Meaning | Executable | Public catalog & indexable |
 |---|---|---:|---:|

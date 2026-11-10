@@ -45,12 +45,16 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
   const [selectedQuality, setSelectedQuality] = useState(0);
   const [isReResolving, setIsReResolving] = useState(false);
 
+  // Hostname-based: substring matching mis-detected lookalike hosts
+  // (e.g. fakeyoutube.com) as the real platform.
   const detectPlatform = (u: string) => {
-    const l = u.toLowerCase();
-    if (l.includes('youtube.com') || l.includes('youtu.be')) return 'YouTube';
-    if (l.includes('tiktok.com')) return 'TikTok';
-    if (l.includes('instagram.com')) return 'Instagram';
-    if (l.includes('facebook.com') || l.includes('fb.watch')) return 'Facebook';
+    try {
+      const h = new URL(u).hostname.toLowerCase();
+      if (h === 'youtube.com' || h.endsWith('.youtube.com') || h === 'youtu.be') return 'YouTube';
+      if (h === 'tiktok.com' || h.endsWith('.tiktok.com')) return 'TikTok';
+      if (h === 'instagram.com' || h.endsWith('.instagram.com')) return 'Instagram';
+      if (h === 'facebook.com' || h.endsWith('.facebook.com') || h === 'fb.watch') return 'Facebook';
+    } catch { /* not a URL yet — falls through to Web Video */ }
     return 'Web Video';
   };
 
@@ -165,7 +169,7 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
       }
 
       setProgress(100);
-      const blob = new Blob(chunks);
+      const blob = new Blob(chunks, { type: response.headers.get('Content-Type') || 'video/mp4' });
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;

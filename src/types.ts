@@ -20,6 +20,7 @@ export type ToolComponentKey =
   | 'audio-transcriber'
   | 'qr-generator'
   | 'color-extractor'
+  | 'video-splitter'
   | 'youtube-downloader'
   | 'instagram-downloader'
   | 'tiktok-downloader'
