@@ -106,12 +106,67 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/image-cropper</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/pixel-art</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/favicon-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/svg-optimizer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/image-resizer</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/gradient-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/pdf-compiler</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/pdf-to-txt</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/txt-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/pdf-splitter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/epub-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/pdf-merger</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/pdf-rotator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -207,6 +262,26 @@
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/tip-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/bmi-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/breath-guide</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/habit-tracker</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/water-tracker</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

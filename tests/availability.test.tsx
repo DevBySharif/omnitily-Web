@@ -23,7 +23,7 @@ describe('truthful route availability', () => {
   });
 
   it('shows honest coming-soon content without generic controls', () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['image-cropper']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['text-diff']} onBack={back} />);
     expect(screen.getByText('Coming Soon')).toBeInTheDocument();
     expect(screen.getByText(/processing for this tool is not implemented/i)).toBeInTheDocument();
     expect(screen.queryByTestId('generic-workspace')).not.toBeInTheDocument();

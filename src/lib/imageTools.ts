@@ -32,6 +32,66 @@ export function buildConvertedFileName(originalName: string, mimeType: string): 
   return `${sanitizedBase}_converted.${extension}`;
 }
 
+// ---------------------------------------------------------------------------
+// Favicon (.ico) export. A genuine ICO file is an ICONDIR header + entries
+// pointing at the image data; modern .ico files embed a PNG (Vista-style)
+// rather than BMP/DIB data, and every OS/browser reads that form. Writing
+// raw PNG bytes with a .ico name (the old favicon-generator bug) is NOT an
+// ICO file — the header below is what makes it one.
+// ---------------------------------------------------------------------------
+
+/** Binary-safe base64 decode (atob alone yields a string, not bytes). */
+export function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Binary-safe base64 encode (btoa alone chokes on non-Latin1 bytes). */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Wraps one PNG image in a genuine single-image .ico container.
+ * `size` is the icon's pixel dimension (1–256; 0 is written for 256, per
+ * the ICO spec). Throws on empty input or an out-of-range size.
+ */
+export function buildIcoFromPng(pngBytes: Uint8Array, size = 32): Uint8Array {
+  if (!(pngBytes instanceof Uint8Array) || pngBytes.length === 0) {
+    throw new Error('ICO export needs non-empty PNG bytes.');
+  }
+  if (!Number.isInteger(size) || size < 1 || size > 256) {
+    throw new Error('ICO icon size must be a whole number from 1 to 256.');
+  }
+  // ICONDIR (6 bytes): reserved=0, type=1 (icon), count=1.
+  // ICONDIRENTRY (16 bytes): width, height, palette=0, reserved=0,
+  // planes=1, bitCount=32, image size, image offset (= 6 + 16 = 22).
+  const header = new Uint8Array(22);
+  const view = new DataView(header.buffer);
+  view.setUint16(0, 0, true);
+  view.setUint16(2, 1, true);
+  view.setUint16(4, 1, true);
+  header[6] = size === 256 ? 0 : size;
+  header[7] = size === 256 ? 0 : size;
+  header[8] = 0;
+  header[9] = 0;
+  view.setUint16(10, 1, true);
+  view.setUint16(12, 32, true);
+  view.setUint32(14, pngBytes.length, true);
+  view.setUint32(18, 22, true);
+  const ico = new Uint8Array(22 + pngBytes.length);
+  ico.set(header, 0);
+  ico.set(pngBytes, 22);
+  return ico;
+}
+
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const k = 1024;

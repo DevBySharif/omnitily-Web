@@ -15,6 +15,16 @@ const TikTokDownloader = lazy(() => import('./TikTokDownloader'));
 const FacebookDownloader = lazy(() => import('./FacebookDownloader'));
 const SocialDownloader = lazy(() => import('./SocialDownloader'));
 const VideoSplitter = lazy(() => import('./VideoSplitter'));
+const ImageCropper = lazy(() => import('./ImageCropper'));
+const PixelArt = lazy(() => import('./PixelArt'));
+const SvgOptimizer = lazy(() => import('./SvgOptimizer'));
+const GradientGenerator = lazy(() => import('./GradientGenerator'));
+const PdfToTxt = lazy(() => import('./PdfToTxt'));
+const TxtToPdf = lazy(() => import('./TxtToPdf'));
+const PdfSplitter = lazy(() => import('./PdfSplitter'));
+const PdfMerger = lazy(() => import('./PdfMerger'));
+const PdfRotator = lazy(() => import('./PdfRotator'));
+const EpubToPdf = lazy(() => import('./EpubToPdf'));
 
 interface ToolWorkspaceProps {
   tool: ToolDefinition;
@@ -151,6 +161,16 @@ function renderEnabledTool(tool: ToolDefinition, onBack: () => void, initialFile
     case 'facebook-downloader': return <FacebookDownloader onBack={onBack} />;
     case 'social-downloader': return <SocialDownloader onBack={onBack} />;
     case 'video-splitter': return <VideoSplitter onBack={onBack} initialFile={initialFile} />;
+    case 'image-cropper': return <ImageCropper onBack={onBack} initialFile={initialFile} />;
+    case 'pixel-art': return <PixelArt onBack={onBack} initialFile={initialFile} />;
+    case 'svg-optimizer': return <SvgOptimizer onBack={onBack} initialFile={initialFile} />;
+    case 'gradient-generator': return <GradientGenerator onBack={onBack} />;
+    case 'pdf-to-txt': return <PdfToTxt onBack={onBack} initialFile={initialFile} />;
+    case 'txt-to-pdf': return <TxtToPdf onBack={onBack} initialFile={initialFile} />;
+    case 'pdf-splitter': return <PdfSplitter onBack={onBack} initialFile={initialFile} />;
+    case 'pdf-merger': return <PdfMerger onBack={onBack} initialFile={initialFile} />;
+    case 'pdf-rotator': return <PdfRotator onBack={onBack} initialFile={initialFile} />;
+    case 'epub-to-pdf': return <EpubToPdf onBack={onBack} initialFile={initialFile} />;
     case 'generic': return <GenericUtilityWorkspace tool={tool} onBack={onBack} initialFile={initialFile} />;
     case undefined: throw new Error(`Enabled tool ${tool.id} is missing a component key.`);
   }

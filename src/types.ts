@@ -26,6 +26,16 @@ export type ToolComponentKey =
   | 'tiktok-downloader'
   | 'facebook-downloader'
   | 'social-downloader'
+  | 'image-cropper'
+  | 'pixel-art'
+  | 'svg-optimizer'
+  | 'gradient-generator'
+  | 'pdf-to-txt'
+  | 'txt-to-pdf'
+  | 'pdf-splitter'
+  | 'pdf-merger'
+  | 'pdf-rotator'
+  | 'epub-to-pdf'
   | 'generic';
 
 export interface ToolDefinition {

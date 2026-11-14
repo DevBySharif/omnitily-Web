@@ -56,7 +56,7 @@ import type { ToolDefinition } from '../types';
 import gifshot from 'gifshot';
 import type { ReencodeVideoResult, SubtitleCue, WatermarkPosition } from '../lib/toolTransforms';
 import { buildTimedCues, buildVideoOutputFilename, convertCase, countText, decodeBase64Safely, decodeUrlSafely, encodeWavPcm16, estimateCompressedBitrate, formatJson, formatResult, formatSubtitleText, formatSubtitleTimestamp, generateLorem, parseFiniteNumber, parseSubtitleText, parseWavHeader, percentageOf, planGifCapture, planLoopOutput, playRockPaperScissors, reencodeVideo, removeDuplicateLines, rollDie, splitTip, validateGifBytes, validateJpegBytes, validateVideoMediaFile, validateWebmBytes, VIDEO_MEDIA_LIMITS } from '../lib/toolTransforms';
-import { formatFileSize } from '../lib/imageTools';
+import { base64ToBytes, buildIcoFromPng, bytesToBase64, formatFileSize } from '../lib/imageTools';
 
 interface GenericUtilityWorkspaceProps {
   tool: ToolDefinition;
@@ -612,14 +612,20 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
   };
 
   // 13. Box Breathing Guide Timer
+  // Dedicated breath state: the guide previously shared the pomodoro
+  // countdown state (timerCount/timerRunning), and the pomodoro effect
+  // stops the timer whenever the count is <= 1 — the breath count starts
+  // at 0, so the session killed itself ~1s after starting.
   const [breathingPhase, setBreathingPhase] = useState<'Inhale' | 'Hold (Full)' | 'Exhale' | 'Hold (Empty)'>('Inhale');
   const [breathProgress, setBreathProgress] = useState(0);
+  const [breathCount, setBreathCount] = useState(0);
+  const [breathRunning, setBreathRunning] = useState(false);
 
   useEffect(() => {
     let interval: any = null;
-    if (tool.id === 'breath-guide' && timerRunning) {
+    if (tool.id === 'breath-guide' && breathRunning) {
       interval = setInterval(() => {
-        setTimerCount(prev => {
+        setBreathCount(prev => {
           const count = (prev + 1) % 16;
           // Phases are 4 seconds each (4 * 4 = 16 seconds total cycle)
           if (count < 4) {
@@ -640,7 +646,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [timerRunning, tool.id]);
+  }, [breathRunning, tool.id]);
 
   // 14. Sleep Aid Ambient Sound synthesis (White & Brown Noise)
   const toggleSleepSounds = (type: 'white' | 'brown' | 'sine') => {
@@ -899,15 +905,47 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
   const [pixelGrid, setPixelGrid] = useState<string[]>(Array(64).fill('#0d0d0d'));
   const [selectedColor, setSelectedColor] = useState('#10b981');
 
-  // 20. Water Level log
-  const [waterOunces, setWaterOunces] = useState(0);
+  // 20. Water Level log — persisted so the logged total survives reload.
+  const WATER_STORAGE_KEY = 'omnitily:water-tracker';
+  const [waterOunces, setWaterOunces] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(WATER_STORAGE_KEY);
+      if (saved !== null) {
+        const parsed = Number.parseInt(saved, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+      }
+    } catch { /* storage unavailable — start at 0 */ }
+    return 0;
+  });
 
-  // 21. Habits list
-  const [habits, setHabits] = useState([
+  useEffect(() => {
+    try { localStorage.setItem(WATER_STORAGE_KEY, String(waterOunces)); } catch { /* storage unavailable */ }
+  }, [waterOunces]);
+
+  // 21. Habits list — persisted so toggles survive reload. Seeded habits
+  // are unchanged; stored state wins when it exists and is well-formed.
+  const HABIT_STORAGE_KEY = 'omnitily:habit-tracker';
+  const DEFAULT_HABITS = [
     { id: 1, text: 'Morning stretch', done: false },
     { id: 2, text: 'Drink 60oz of water', done: true },
     { id: 3, text: 'Read for 15 minutes', done: false },
-  ]);
+  ];
+  const [habits, setHabits] = useState<{ id: number; text: string; done: boolean }[]>(() => {
+    try {
+      const saved = localStorage.getItem(HABIT_STORAGE_KEY);
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.every(h => h && typeof h.id === 'number' && typeof h.text === 'string' && typeof h.done === 'boolean')) {
+          return parsed;
+        }
+      }
+    } catch { /* corrupt storage — fall back to the seeded habits */ }
+    return DEFAULT_HABITS;
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(HABIT_STORAGE_KEY, JSON.stringify(habits)); } catch { /* storage unavailable */ }
+  }, [habits]);
 
   // --- P2-A2 TOOL LOGIC ---
 
@@ -1176,6 +1214,45 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
     });
   };
 
+  // Real duration of a recorded video blob, in seconds (null if it cannot
+  // be determined). MediaRecorder WebM files often report an Infinity
+  // duration in metadata — seeking past the end forces the element to
+  // resolve the true duration via a `durationchange` event.
+  const measureVideoDuration = (src: string, timeoutMs = 8000): Promise<number | null> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.preload = 'metadata';
+      const timer = window.setTimeout(() => { cleanup(); resolve(null); }, timeoutMs);
+      const cleanup = () => {
+        window.clearTimeout(timer);
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('durationchange', onDurationChange);
+        video.removeEventListener('error', onError);
+        try { video.removeAttribute('src'); video.load(); } catch { /* already torn down */ }
+      };
+      const finish = (value: number | null) => { cleanup(); resolve(value); };
+      const onLoaded = () => {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          finish(video.duration);
+          return;
+        }
+        // Infinity duration: seek past the end to force the real value.
+        try { video.currentTime = Number.MAX_SAFE_INTEGER; } catch { finish(null); }
+      };
+      const onDurationChange = () => {
+        if (Number.isFinite(video.duration) && video.duration > 0 && video.duration !== Infinity) {
+          finish(video.duration);
+        }
+      };
+      const onError = () => { finish(null); };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('durationchange', onDurationChange);
+      video.addEventListener('error', onError);
+      video.src = src;
+    });
+  };
+
   const pickRecorderMimeType = (): string | undefined => {
     if (typeof MediaRecorder === 'undefined') return undefined;
     const candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
@@ -1200,6 +1277,15 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
    * `onEnded` is called on every `ended` event: return true to finish, false
    * to restart from 0 (looper). Resolves with the recorded Blob; rejects on
    * timeout, playback failure, recorder error, or user cancellation.
+   *
+   * `loopCount` switches the looper to its only reliable mode: with plain
+   * seek-to-0 replay the captureStream video track ends permanently the
+   * first time the element reaches the end of its media (track.readyState
+   * becomes 'ended', the stream goes inactive, MediaRecorder stops itself
+   * — so a 3x loop recorded exactly one pass). With `video.loop = true`
+   * the element never reaches end-of-media, the track stays live across
+   * wraps, and a requestAnimationFrame watch on `currentTime` counts each
+   * wrap until `loopCount` is reached. `onEnded` is then only a fallback.
    */
   const recordVideoElement = (
     video: HTMLVideoElement,
@@ -1208,6 +1294,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       videoBitsPerSecond?: number;
       maxSeconds: number;
       onEnded: () => boolean;
+      loopCount?: number;
     },
   ): Promise<Blob> => {
     return new Promise<Blob>((resolve, reject) => {
@@ -1244,14 +1331,56 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
         teardown();
         reject(new Error(`Recording timed out after ${opts.maxSeconds + 15}s.`));
       }, (opts.maxSeconds + 15) * 1000);
+      const loopCount = opts.loopCount && opts.loopCount > 1 ? Math.floor(opts.loopCount) : undefined;
+      let rafId = 0;
+      let lastTime = 0;
+      let wraps = 0;
       const teardown = () => {
         window.clearTimeout(timer);
+        if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
         video.removeEventListener('ended', handleEnded);
         activeRecordingRef.current = null;
         stream.getTracks().forEach((track) => { try { track.stop(); } catch { /* already stopped */ } });
       };
+      const finishRecording = () => {
+        if (settled) return;
+        settled = true;
+        try { video.pause(); } catch { /* already stopped */ }
+        // Stop the recorder BEFORE tearing the tracks down: stopping the
+        // tracks first can discard the in-flight timeslice (up to ~250ms
+        // of tail frames). onstop below does the teardown once the final
+        // data has been flushed.
+        try {
+          if (recorder.state !== 'inactive') recorder.stop();
+        } catch { teardown(); /* stop failed — clean up directly */ }
+      };
+      // Loop mode: count each internal wrap of the looping element. The
+      // recorder stops itself only when the capture track ends, which the
+      // native loop prevents — so this is the finishing condition.
+      const watchLoopWraps = () => {
+        if (settled) return;
+        const currentTime = video.currentTime;
+        // A wrap is a large backwards jump of the playhead. A normal frame
+        // step is ~33ms, so the 0.5s threshold never trips on jitter.
+        if (currentTime < lastTime - 0.5) {
+          wraps += 1;
+          addLog(`Loop ${wraps}/${loopCount} recorded...`);
+          if (wraps >= (loopCount || 0)) {
+            finishRecording();
+            return;
+          }
+        }
+        lastTime = currentTime;
+        rafId = requestAnimationFrame(watchLoopWraps);
+      };
       const handleEnded = () => {
         if (settled) return;
+        if (loopCount) {
+          // Should not happen with video.loop set, but if it does the
+          // capture track is already dead — finish with what was recorded.
+          finishRecording();
+          return;
+        }
         if (cancelRequestedRef.current) {
           settled = true;
           teardown();
@@ -1263,9 +1392,12 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
         let done = true;
         try { done = opts.onEnded(); } catch { done = true; }
         if (done) {
+          // Same stop-before-teardown ordering as finishRecording: let
+          // onstop flush the final timeslice, then tear the tracks down.
           settled = true;
-          teardown();
-          try { if (recorder.state !== 'inactive') recorder.stop(); } catch { /* already stopped */ }
+          try {
+            if (recorder.state !== 'inactive') recorder.stop();
+          } catch { teardown(); /* stop failed — clean up directly */ }
         } else {
           video.currentTime = 0;
           void video.play().catch(() => {
@@ -1282,7 +1414,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       };
       // onstop fires after stop(); the promise may already be settled by the
       // timeout/cancel paths — resolve() after reject() is a harmless no-op.
+      // Teardown happens here (not before stop()) so the recorder's final
+      // timeslice is flushed before the capture tracks are stopped.
       recorder.onstop = () => {
+        teardown();
         resolve(new Blob(chunks, { type: opts.mimeType || 'video/webm' }));
       };
       recorder.onerror = () => {
@@ -1300,6 +1435,13 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
         teardown();
         reject(new Error(`MediaRecorder could not start: ${e instanceof Error ? e.message : 'unknown error'}`));
         return;
+      }
+      if (loopCount) {
+        // Native looping keeps the capture track alive across wraps; the
+        // rAF watcher above counts each wrap and finishes the recording.
+        video.loop = true;
+        lastTime = 0;
+        rafId = requestAnimationFrame(watchLoopWraps);
       }
       void video.play().catch((e) => {
         if (!settled) {
@@ -1506,11 +1648,21 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(img, 0, 0, 32, 32);
-        const url = canvas.toDataURL('image/png');
-        setConvertedBlobUrl(url);
-        setConvertedFilename('favicon.png');
-        setOutputText('Favicon generated at 32x32px resolution!\nFormat: PNG Icon\nReady for download.');
-        addLog('Favicon icon compiled.');
+        // Genuine .ico export: the 32x32 PNG raster is wrapped in a real
+        // ICO container (ICONDIR + entry + PNG data). The old export wrote
+        // bare PNG bytes under an .ico name, which is not an ICO file.
+        try {
+          const pngDataUrl = canvas.toDataURL('image/png');
+          const pngBytes = base64ToBytes(pngDataUrl.split(',')[1] || '');
+          const icoBytes = buildIcoFromPng(pngBytes, 32);
+          setConvertedBlobUrl(`data:image/x-icon;base64,${bytesToBase64(icoBytes)}`);
+          setConvertedFilename('favicon.ico');
+          setOutputText('Favicon generated at 32x32px resolution!\nFormat: ICO — genuine .ico file (32x32 PNG image data inside)\nReady for download.');
+          addLog('Favicon icon compiled.');
+        } catch (e) {
+          setOutputText(`Favicon generation failed: ${e instanceof Error ? e.message : 'could not encode the icon.'}`);
+          addLog('Favicon generation failed.');
+        }
       }
       setIsProcessing(false);
     };
@@ -1756,24 +1908,29 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
       }
       const plan = planLoopOutput(video.duration, loopCount);
       const mimeType = pickRecorderMimeType();
-      let loopsDone = 0;
       addLog(`Recording ${plan.loopCount} loops (${plan.totalSeconds.toFixed(1)}s total)...`);
       video.currentTime = 0;
       const blob = await recordVideoElement(video, {
         mimeType,
         maxSeconds: plan.totalSeconds,
-        onEnded: () => {
-          loopsDone += 1;
-          addLog(`Loop ${loopsDone}/${plan.loopCount} recorded...`);
-          return loopsDone >= plan.loopCount;
-        },
+        // Native looping + wrap counting (see recordVideoElement): the
+        // `ended` fallback only fires if the track dies early.
+        loopCount: plan.loopCount,
+        onEnded: () => true,
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
       validateWebmBytes(bytes);
       const base = uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || 'video';
-      setConvertedBlobUrl(URL.createObjectURL(blob));
+      const outUrl = URL.createObjectURL(blob);
+      // Report the MEASURED output duration, not loops × clip length: the
+      // old text claimed the expected value while the file held one pass.
+      const measuredSeconds = await measureVideoDuration(outUrl);
+      setConvertedBlobUrl(outUrl);
       setConvertedFilename(`looped_${plan.loopCount}x_${base}.webm`);
-      setOutputText(`Looped video created and verified!\nFormat: WebM (${mimeType || 'browser default'})\nLoops: ${plan.loopCount}x ${video.duration.toFixed(1)}s = ${plan.totalSeconds.toFixed(1)}s expected duration\nOriginal: ${formatFileSize(uploadedFile.size)} → Output: ${formatFileSize(bytes.length)}\nNote: output duration is the expected value (loops × clip length); exact frame timing needs a real-browser playback check.`);
+      const durationLine = measuredSeconds !== null
+        ? `Measured output duration: ${measuredSeconds.toFixed(1)}s`
+        : `Measured output duration: unavailable (expected ${plan.totalSeconds.toFixed(1)}s)`;
+      setOutputText(`Looped video created and verified!\nFormat: WebM (${mimeType || 'browser default'})\nLoops: ${plan.loopCount}x ${video.duration.toFixed(1)}s clip\n${durationLine}\nOriginal: ${formatFileSize(uploadedFile.size)} → Output: ${formatFileSize(bytes.length)}`);
       addLog('Looped video created and verified successfully.');
     } catch (e: any) {
       const message = e?.message || 'Video looping failed.';
@@ -2038,7 +2195,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
         ctx.drawImage(img, 0, 0, resizeWidth, resizeHeight);
         const url = canvas.toDataURL('image/jpeg', 0.95);
         setConvertedBlobUrl(url);
-        setConvertedFilename(`resized_${uploadedFile.name}`);
+        // The output bytes are JPEG (see toDataURL above), so the filename
+        // must end .jpg — keeping the source .png name mislabeled the file.
+        const base = uploadedFile.name.substring(0, uploadedFile.name.lastIndexOf('.')) || uploadedFile.name;
+        setConvertedFilename(`resized_${base}.jpg`);
         setOutputText(`Media resized successfully!\nDimensions: ${resizeWidth}x${resizeHeight}px`);
         addLog(`Resized media to ${resizeWidth}x${resizeHeight}px.`);
       }
@@ -3162,7 +3322,7 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                     </label>
                     <input 
                       type="range" 
-                      min="40" 
+                      min="12" 
                       max="120" 
                       value={sliderVal} 
                       onChange={(e) => {
@@ -3246,8 +3406,8 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                   <div className="h-44 flex items-center justify-center">
                     <div
                       style={{
-                        transform: `scale(${timerRunning ? (breathProgress * 0.8 + 0.6) : 0.8})`,
-                        boxShadow: timerRunning ? `0 0 ${breathProgress * 30 + 10}px rgba(197, 163, 104, 0.4)` : 'none',
+                        transform: `scale(${breathRunning ? (breathProgress * 0.8 + 0.6) : 0.8})`,
+                        boxShadow: breathRunning ? `0 0 ${breathProgress * 30 + 10}px rgba(197, 163, 104, 0.4)` : 'none',
                         transition: 'transform 1s ease-in-out, box-shadow 1s ease-in-out'
                       }}
                       className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#059669] to-[#10b981] flex items-center justify-center text-black font-bold"
@@ -3258,10 +3418,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
 
                   <div className="text-center">
                     <h3 className="font-sans text-lg text-white">
-                      {timerRunning ? breathingPhase : 'Box Breathing Sphere'}
+                      {breathRunning ? breathingPhase : 'Box Breathing Sphere'}
                     </h3>
                     <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-                      {timerRunning 
+                      {breathRunning 
                         ? 'Slightly align your breathing pace with the expanding physical circle.' 
                         : 'Click on the prompt below to initiate 16-second box breathing cycles.'
                       }
@@ -3269,10 +3429,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
                   </div>
 
                   <button
-                    onClick={() => setTimerRunning(!timerRunning)}
+                    onClick={() => setBreathRunning(!breathRunning)}
                     className="w-full py-2.5 bg-[#10b981] text-black font-bold text-xs rounded uppercase tracking-widest hover:bg-[#10b981]/90 transition-all cursor-pointer"
                   >
-                    {timerRunning ? 'Halt Training' : 'Initiate Breathing Timer'}
+                    {breathRunning ? 'Halt Training' : 'Initiate Breathing Timer'}
                   </button>
                 </div>
               )}
