@@ -171,6 +171,41 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/sound-recorder</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/audio-merger</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/voice-changer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/audio-speed</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/bpm-finder</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/metronome</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/audio-converter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/case-converter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -186,12 +221,32 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/text-diff</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/markdown-editor</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/regex-tester</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/slug-generator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/text-sorter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/find-replace</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -226,6 +281,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/sentence-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/qr-generator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -241,12 +301,47 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/xml-beautifier</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/jwt-debugger</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/sql-formatter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/cron-parser</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/color-blender</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/contrast-checker</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/base-converter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/user-agent</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/mock-api</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -266,7 +361,32 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/matrix-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/binary-math</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/fibonacci-gen</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/bmi-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/calorie-counter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/planner</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -286,12 +406,52 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/sleep-calculator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/dice-roller</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/rock-paper-scissors</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/tic-tac-toe</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/name-picker</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/love-calculator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/trivia-quiz</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/reaction-test</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/anagram-solver</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/sudoku-solver</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

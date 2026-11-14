@@ -14,7 +14,7 @@ describe('unavailable-route regressions', () => {
   });
 
   it('coming-soon routes cannot start progress or produce output', () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['text-diff']} onBack={() => undefined} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['port-scanner']} onBack={() => undefined} />);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.queryByText(/success|completed|result/i)).not.toBeInTheDocument();
   });
