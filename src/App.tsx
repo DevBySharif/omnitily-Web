@@ -416,7 +416,7 @@ function AppContent() {
               <span className="font-extrabold text-lg text-white tracking-tight block font-sans font-sans">
                 Omnitily <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider ml-0.5 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.5 rounded">Core</span>
               </span>
-              <span className="text-[9px] text-zinc-500 font-mono block leading-none uppercase tracking-widest mt-1">Universal Utility Suite</span>
+              <span className="text-[9px] text-zinc-500 font-mono block leading-none uppercase tracking-widest mt-1">Free Online Tools</span>
             </div>
           </div>
 
@@ -462,10 +462,13 @@ function AppContent() {
                   Universal Sandbox Tools
                 </span>
                 <h1 className="text-4xl font-extrabold text-white tracking-tight sm:text-5xl leading-tight font-sans">
-                  Universal <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 font-extrabold uppercase tracking-tight">Utility Suite</span>
+                  Free <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400 font-extrabold uppercase tracking-tight">Online Tools</span>, All in One Place
                 </h1>
                 <p className="text-zinc-400 text-sm leading-relaxed">
-                  A transparent collection of browser, server, and provider-assisted utilities. Every tool shows its availability and where processing occurs before you use it.
+                  Free online tools for video, image, PDF, text and developer tasks. Download, convert, compress and edit files in your browser — no signup, no watermark.
+                </p>
+                <p className="text-zinc-400 text-sm leading-relaxed">
+                  From video downloaders and converters to image compression, PDF tools, QR codes and text utilities — every tool runs free in your browser, with no signup and no watermark.
                 </p>
               </div>
 

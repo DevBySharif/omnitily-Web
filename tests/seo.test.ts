@@ -43,7 +43,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
     if (!existsSync('dist/index.html')) return; // Run after build
 
     const html = readFileSync('dist/index.html', 'utf8');
-    expect(html).toContain('<title>Omnitily - Universal Media &amp; Format Workstation</title>');
+    expect(html).toContain('<title>Omnitily — Free Online Tools: Video, Image, PDF, Text &amp; Developer Utilities</title>');
     expect(html).toContain('<link rel="canonical" href="https://omnitily.vercel.app/" />');
     expect(html).toContain('application/ld+json');
 
@@ -55,7 +55,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
 
     expect(types).toContain('WebSite');
     expect(types).toContain('Organization');
-    expect(html).toContain('Omnitily Workstation');
+    expect(html).toContain('Free Online Tools, All in One Place');
     expect(html).toContain('/tools/image-converter');
   });
 
@@ -112,7 +112,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
 
   it('beta, coming-soon and disabled tools stay noindex and excluded from the sitemap', () => {
     const nonIndexable = TOOL_REGISTRY.filter((t) => t.status !== 'functional');
-    expect(nonIndexable.length).toBe(80); // 24 beta + 43 coming-soon + 13 disabled
+    expect(nonIndexable.length).toBe(74); // 18 beta + 43 coming-soon + 13 disabled
 
     for (const tool of nonIndexable) {
       expect(tool.isIndexable).toBe(false);
@@ -127,7 +127,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
       const html = readFileSync(`dist/tools/${tool.id}/index.html`, 'utf8');
       expect(html).toContain('<meta name="robots" content="noindex, nofollow" />');
       expect(html).toContain(`<link rel="canonical" href="https://omnitily.vercel.app/tools/${tool.id}" />`);
-      expect(html).not.toContain('<title>Omnitily - Universal Media &amp; Format Workstation</title>');
+      expect(html).not.toContain('<title>Omnitily — Free Online Tools: Video, Image, PDF, Text &amp; Developer Utilities</title>');
       expect(html).not.toContain('<link rel="canonical" href="https://omnitily.vercel.app/" />');
       expect(html).not.toContain('"@type":"WebSite"');
     }
@@ -140,7 +140,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
     expect(html).toContain('<meta name="robots" content="noindex, nofollow" />');
     expect(html).toContain('<title>Page Not Found - Omnitily</title>');
     expect(html).not.toContain('<link rel="canonical"');
-    expect(html).not.toContain('<title>Omnitily - Universal Media &amp; Format Workstation</title>');
+    expect(html).not.toContain('<title>Omnitily — Free Online Tools: Video, Image, PDF, Text &amp; Developer Utilities</title>');
     expect(html).not.toContain('"@type":"WebSite"');
   });
 });

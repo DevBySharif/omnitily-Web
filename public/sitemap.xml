@@ -21,7 +21,17 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/instagram-downloader</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/tiktok-downloader</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/facebook-downloader</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -91,6 +101,16 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/image-compressor</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/image-resizer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/pdf-compiler</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -151,6 +171,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/qr-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/json-formatter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -167,6 +192,11 @@
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/base-converter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/unit-converter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

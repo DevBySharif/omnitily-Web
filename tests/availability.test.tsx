@@ -17,7 +17,7 @@ describe('truthful route availability', () => {
   });
 
   it('mounts a beta route and displays beta state', async () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['image-compressor']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['image-filters']} onBack={back} />);
     expect(await screen.findByTestId('generic-workspace')).toBeInTheDocument();
     expect(screen.getByText('Beta')).toBeInTheDocument();
   });

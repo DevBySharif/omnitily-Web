@@ -78,11 +78,12 @@ function injectHeadAndBody(html: string, headHtml: string, bodyHtml: string): st
 }
 
 // 1. Prerender Homepage
-const homepageTitle = 'Omnitily - Universal Media & Format Workstation';
-const homepageDesc = 'A transparent all-in-one utility catalog with clear availability and browser, server, or third-party processing labels.';
+const homepageTitle = 'Omnitily — Free Online Tools: Video, Image, PDF, Text & Developer Utilities';
+const homepageDesc = 'Free online tools for video, image, PDF, text and developer tasks. Download, convert, compress and edit files in your browser — no signup, no watermark.';
+const homepageIntro = 'From video downloaders and converters to image compression, PDF tools, QR codes and text utilities — every tool runs free in your browser, with no signup and no watermark.';
 const homepageCanonical = `${DOMAIN}/`;
 const homepageRobots = 'index, follow';
-const homepageKeywords = 'utility tools, browser media converter, pdf compiler, audio tools, qr code generator, online utilities';
+const homepageKeywords = 'free online tools, video downloader, image compressor, qr code generator, pdf tools, video converter, text tools, developer tools';
 
 const webSiteSchema = {
   '@context': 'https://schema.org',
@@ -129,10 +130,10 @@ const homepageBody = `
           <div class="w-full h-full bg-[#07080a] rounded-[10px] flex items-center justify-center text-emerald-400 font-bold text-base">⚡</div>
         </div>
         <div>
-          <h1 class="font-sans text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+          <div class="font-sans text-lg font-black tracking-tight text-white flex items-center gap-1.5">
             Omnitily <span class="text-[10px] uppercase font-mono tracking-widest bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 px-1.5 py-0.5 rounded font-bold">2026</span>
-          </h1>
-          <p class="text-[10px] text-zinc-400 font-mono tracking-wide">Universal Media &amp; Format Workstation</p>
+          </div>
+          <p class="text-[10px] text-zinc-400 font-mono tracking-wide">Free Online Tools</p>
         </div>
       </a>
     </div>
@@ -140,8 +141,9 @@ const homepageBody = `
 
   <main class="max-w-6xl mx-auto px-4 py-8">
     <section class="mb-10 text-center sm:text-left">
-      <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Omnitily Workstation</h1>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">Free Online Tools, All in One Place</h1>
       <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">${escapeHtml(homepageDesc)}</p>
+      <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">${escapeHtml(homepageIntro)}</p>
     </section>
 
     <section aria-labelledby="all-tools-heading">

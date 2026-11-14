@@ -159,15 +159,15 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
         document.head.appendChild(breadcrumbScript);
       }
     } else {
-      const title = 'Omnitily - Universal Utility Suite';
-      const desc = 'A transparent all-in-one utility catalog with clear availability and browser, server, or third-party processing labels.';
+      const title = 'Omnitily — Free Online Tools: Video, Image, PDF, Text & Developer Utilities';
+      const desc = 'Free online tools for video, image, PDF, text and developer tasks. Download, convert, compress and edit files in your browser — no signup, no watermark.';
       const canonical = `${DOMAIN}/`;
 
       document.title = title;
       setCanonicalUrl(canonical);
       setMetaTag('name', 'description', desc);
       setMetaTag('name', 'robots', 'index, follow');
-      setMetaTag('name', 'keywords', 'utility tools, browser media converter, pdf compiler, audio tools, qr code generator, online utilities');
+      setMetaTag('name', 'keywords', 'free online tools, video downloader, image compressor, qr code generator, pdf tools, video converter, text tools, developer tools');
 
       setMetaTag('property', 'og:site_name', 'Omnitily');
       setMetaTag('property', 'og:type', 'website');
