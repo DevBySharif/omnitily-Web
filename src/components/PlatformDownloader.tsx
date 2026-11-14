@@ -380,9 +380,11 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
               ) : (
                 <div className="p-5 flex flex-col gap-4">
                   <div className="flex items-center gap-4">
-                    {resolvedThumbnail && (
+                    {resolvedThumbnail ? (
                       <img src={resolvedThumbnail} alt="" className="w-28 aspect-video object-cover rounded shrink-0" referrerPolicy="no-referrer" />
-                    )}
+                    ) : resolvedUrl ? (
+                      <video src={resolvedUrl} className="w-28 aspect-video object-cover rounded shrink-0 bg-zinc-800" preload="metadata" muted playsInline />
+                    ) : null}
                     <div className="flex-1 min-w-0">
                       <span className="text-[9px] font-bold uppercase tracking-widest bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/25">
                         {config.name} · Stream Resolved

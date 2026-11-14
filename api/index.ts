@@ -393,7 +393,10 @@ async function resolveSocialMedia(rawUrl: string, qualityRaw: unknown, outboundL
       : 'Could not extract a stream URL. The link may be private, expired, or unsupported.');
   }
   if (!title) title = `${platformName} Video`;
-  if (!thumbnail) thumbnail = 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&auto=format&fit=crop&q=60';
+  // No stock-photo fallback: when the provider returns no thumbnail (e.g.
+  // a Cobalt tunnel/redirect for Instagram/Facebook), `thumbnail` stays
+  // empty and the UI previews the resolved video itself instead of a
+  // misleading generic image.
 
   return { title, thumbnail, videoUrl, duration, platform: platformName, qualityServed };
 }

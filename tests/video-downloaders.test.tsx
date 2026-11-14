@@ -415,6 +415,9 @@ describe('resolve-social with a configured Cobalt instance', () => {
       videoUrl: 'https://cdn.example/ig.mp4',
       title: 'my reel',
       platform: 'Instagram',
+      // No stock-photo thumbnail: Cobalt returns no thumbnail, so the
+      // resolver leaves it empty and the UI previews the video itself.
+      thumbnail: '',
     });
   });
 
@@ -867,6 +870,21 @@ describe('PlatformDownloader component', () => {
     expect(fetchCalls.some((c) => c.url.startsWith('/api/resolve-social'))).toBe(false);
   });
 
+  it('shows a video preview when Cobalt returns no thumbnail', async () => {
+    fetchHandler = (url) => {
+      if (url.startsWith('/api/download/youtube')) return cobaltTunnel('https://93.184.216.34/v.mp4', 'clip.mp4');
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const { container } = renderYoutube();
+    fireEvent.change(screen.getByPlaceholderText(/youtube\.com\/watch/i), { target: { value: YT_URL } });
+    fireEvent.click(screen.getByRole('button', { name: /Resolve/ }));
+    expect(await screen.findByText('clip.mp4')).toBeInTheDocument();
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute('src')).toBe('https://93.184.216.34/v.mp4');
+    expect(container.querySelector('img')).toBeNull();
+  });
+
   it('shows an honest error when both the Cobalt and fallback resolvers fail', async () => {
     fetchHandler = (url) => {
       if (url.startsWith('/api/download/youtube')) {
@@ -982,6 +1000,28 @@ describe('SocialDownloader component', () => {
     expect(await screen.findByText(/Download started!/)).toBeInTheDocument();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('shows the resolved video itself as the preview when no thumbnail exists (no stock photo)', async () => {
+    fetchHandler = (url) => {
+      if (url.startsWith('/api/resolve-social')) {
+        return jsonResponse(200, {
+          title: 'instagram DeX6KRsTz1K', thumbnail: '',
+          videoUrl: 'https://cdn.example/ig.mp4', duration: '00:00',
+          platform: 'Instagram', qualityServed: 'original',
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const { container } = renderSocial();
+    fireEvent.change(screen.getByPlaceholderText(/youtu\.be/i), { target: { value: IG_URL } });
+    fireEvent.click(screen.getByRole('button', { name: /Download →/ }));
+    expect(await screen.findByText('instagram DeX6KRsTz1K')).toBeInTheDocument();
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute('src')).toBe('https://cdn.example/ig.mp4');
+    // No generic image anywhere in the result card.
+    expect(container.querySelector('img')).toBeNull();
   });
 
   it('shows the server error honestly when resolution fails', async () => {

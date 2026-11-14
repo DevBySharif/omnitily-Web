@@ -189,6 +189,14 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
 
   const reset = () => { setUrl(''); setStatus('idle'); setMeta(null); setProgress(0); setSelectedQuality(0); setIsReResolving(false); };
 
+  // Preview rule: when the resolved stream is a video, show the video
+  // itself (its first frame is the true preview). The thumbnail is only
+  // used for audio quality, where the stream is an mp3. When the provider
+  // returns no thumbnail at all (e.g. Cobalt for Instagram/Facebook),
+  // there is no stock-photo fallback — the video preview is the preview.
+  const isAudioQuality = QUALITIES[selectedQuality].id === 'mp3';
+  const showVideoPreview = Boolean(meta?.videoUrl) && !isAudioQuality;
+
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6" id="social-downloader-tool">
       <div className="flex items-center justify-between mb-8 pb-4 border-b border-[#2a2a2a]">
@@ -266,11 +274,14 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
               className="border border-[#2a2a2a] bg-[#0d0d0d] rounded-xl overflow-hidden shadow-2xl max-w-3xl mx-auto w-full">
               <div className="flex flex-col md:flex-row">
                 <div className="w-full md:w-60 aspect-video bg-[#0a0a0a] shrink-0 relative overflow-hidden">
-                  {meta.thumbnail
-                    ? <img src={meta.thumbnail} alt="thumb" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    : <div className="w-full h-full flex items-center justify-center"><Play className="w-10 h-10 text-gray-700" /></div>
-                  }
-                  {meta.duration && meta.duration !== '00:00' && (
+                  {showVideoPreview ? (
+                    <video src={meta.videoUrl} className="w-full h-full object-cover" preload="metadata" controls muted playsInline />
+                  ) : meta.thumbnail ? (
+                    <img src={meta.thumbnail} alt="thumb" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center"><Play className="w-10 h-10 text-gray-700" /></div>
+                  )}
+                  {!showVideoPreview && meta.duration && meta.duration !== '00:00' && (
                     <span className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/80 rounded text-[10px] font-mono text-white font-bold">{meta.duration}</span>
                   )}
                 </div>
