@@ -173,13 +173,18 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
         body: JSON.stringify({ url: trimmed }),
       });
 
-      // The per-platform endpoint needs the self-hosted Cobalt backend. In
-      // the zero-cost deployment that backend is not configured, so the
-      // server answers 503 — and only then do we fall back to the
-      // config-free resolver (/api/resolve-social). Any other failure
-      // (400/422/429/502) is a real answer about this link and is shown
-      // as-is instead of being masked by a second attempt.
-      if (response.status === 503) {
+      // Fall back to the config-free resolver (/api/resolve-social) when
+      // the provider is not configured or still waking (503) — and, for
+      // YouTube/TikTok, on ANY provider failure (any non-OK response).
+      // Cobalt is blocked from YouTube (it has been since mid-2025), so a
+      // 502 from /api/download for a YouTube link is expected, not final —
+      // the built-in InnerTube resolver is the real path there, and TikTok
+      // has its own config-free leg too. A successful provider response
+      // still takes the normal path below. Instagram/Facebook have no
+      // config-free leg, so a real provider error for them is still shown
+      // as-is instead of being masked by a second attempt that would fail
+      // the same way.
+      if (!response.ok && (response.status === 503 || platform === 'youtube' || platform === 'tiktok')) {
         const fallback = await fetch('/api/resolve-social', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -288,7 +293,6 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
             {icon} {config.name} Downloader
           </h1>
           <p className="text-zinc-400 text-sm mt-1">{description}</p>
-          <p className="mt-2 text-xs text-amber-300">Submitted URLs are sent to Omnitily&apos;s server, which resolves them via the Cobalt download provider or the built-in resolvers. Only public content is supported.</p>
         </div>
       </div>
 

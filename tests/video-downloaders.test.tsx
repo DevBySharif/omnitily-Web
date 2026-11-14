@@ -856,18 +856,47 @@ describe('PlatformDownloader component', () => {
     spy.mockRestore();
   });
 
-  it('does NOT fall back on a real provider error (502) and shows it honestly', async () => {
+  it('does NOT fall back on a real provider error (502) for Instagram and shows it honestly', async () => {
+    fetchHandler = (url) => {
+      if (url.startsWith('/api/download/instagram')) {
+        return jsonResponse(502, { error: { code: 'PROVIDER_ERROR', message: 'The download provider could not resolve this URL.' } });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    render(<PlatformDownloader platform="instagram" icon={<span>IG</span>} description="Download public Instagram reels." />);
+    fireEvent.change(screen.getByPlaceholderText(/instagram\.com\/reel/i), { target: { value: IG_URL } });
+    fireEvent.click(screen.getByRole('button', { name: /Resolve/ }));
+    expect(await screen.findByText('The download provider could not resolve this URL.')).toBeInTheDocument();
+    expect(fetchCalls.some((c) => c.url.startsWith('/api/resolve-social'))).toBe(false);
+  });
+
+  it('falls back to resolve-social when Cobalt fails with a 502 for YouTube (Cobalt is blocked from YouTube)', async () => {
+    const spy = clickSpy();
     fetchHandler = (url) => {
       if (url.startsWith('/api/download/youtube')) {
         return jsonResponse(502, { error: { code: 'PROVIDER_ERROR', message: 'The download provider could not resolve this URL.' } });
+      }
+      if (url.startsWith('/api/resolve-social')) {
+        return jsonResponse(200, {
+          title: 'Fallback Video Title', thumbnail: YT_THUMB,
+          videoUrl: 'https://93.184.216.34/v.mp4', duration: '03:33',
+          platform: 'YouTube', qualityServed: '360p',
+        });
+      }
+      if (url.startsWith('/api/media-proxy')) {
+        return streamResponse(200, [new TextEncoder().encode('0123456789')], 'video/mp4', 10);
       }
       throw new Error(`unexpected fetch: ${url}`);
     };
     renderYoutube();
     fireEvent.change(screen.getByPlaceholderText(/youtube\.com\/watch/i), { target: { value: YT_URL } });
     fireEvent.click(screen.getByRole('button', { name: /Resolve/ }));
-    expect(await screen.findByText('The download provider could not resolve this URL.')).toBeInTheDocument();
-    expect(fetchCalls.some((c) => c.url.startsWith('/api/resolve-social'))).toBe(false);
+    expect(await screen.findByText('Fallback Video Title')).toBeInTheDocument();
+    expect(screen.getByText(/Duration 03:33/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    expect(await screen.findByText(/Download started!/)).toBeInTheDocument();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('shows a video preview when Cobalt returns no thumbnail', async () => {

@@ -235,7 +235,6 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
             <Download className="w-8 h-8 text-[#10b981]" /> Social Media Downloader
           </h1>
           <p className="text-gray-400 text-sm mt-1">Download HD videos and extracts from YouTube, TikTok, Instagram, and Facebook.</p>
-          <p className="mt-2 text-xs text-amber-300">Submitted URLs are sent to Omnitily's server for resolution. No credentials are forwarded.</p>
         </div>
       </div>
 
