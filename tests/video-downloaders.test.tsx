@@ -272,6 +272,30 @@ describe('resolve-social (resolver)', () => {
     expect(res.headers['retry-after']).toBeTruthy();
   });
 
+  it('routes InnerTube through YT_RELAY_URL when set and never calls youtube.com directly', async () => {
+    const prev = process.env.YT_RELAY_URL;
+    process.env.YT_RELAY_URL = 'https://relay.example';
+    try {
+      fetchHandler = (url) => {
+        if (url === 'https://relay.example/youtubei/v1/player?prettyPrint=false') {
+          return innerTubeResponse([{ height: 1080, url: 'https://cdn.example/1080.mp4' }]);
+        }
+        return failingFetchHandler(url);
+      };
+      const res = await request(createApp({ config: NO_COBALT_CONFIG }))
+        .post('/api/resolve-social')
+        .set('Content-Type', 'application/json')
+        .send({ url: YT_URL });
+      expect(res.status).toBe(200);
+      expect(res.body.videoUrl).toBe('https://cdn.example/1080.mp4');
+      expect(fetchCalls.some((c) => c.url.startsWith('https://relay.example/youtubei/'))).toBe(true);
+      expect(fetchCalls.some((c) => c.url.startsWith('https://www.youtube.com/youtubei/'))).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.YT_RELAY_URL;
+      else process.env.YT_RELAY_URL = prev;
+    }
+  });
+
   it('resolves TikTok via tikwm and picks hdplay for max, play for 360p', async () => {
     const tikwmData = {
       title: 'Wizard video',

@@ -44,8 +44,31 @@ function proxyFilename(raw: string | undefined, mime: string): string {
 const PROXY_URL = process.env.PROXY_URL || '';
 const ytDispatcher = PROXY_URL ? new ProxyAgent(PROXY_URL) : undefined;
 
+// Optional Cloudflare Worker relay for YouTube InnerTube requests.
+// YouTube blocks the player endpoint from datacenter IPs — Vercel's shared
+// egress gets HTTP 429s, other cloud IPs get a "Sign in to confirm you're
+// not a bot" wall — so the direct call works from almost nowhere a
+// serverless host runs. The relay is a tiny free Worker that forwards
+// /youtubei/* requests from Cloudflare's egress instead (see
+// docs/YOUTUBE_RELAY.md). It is NOT a general proxy: only youtube.com
+// hosts and /youtubei/ paths are relayed, everything else falls through
+// to the direct call. Read at call time so tests can stub it without a
+// module reload. PROXY_URL (a real proxy) still takes precedence.
+function relayUrl(input: string): string | null {
+  const base = (process.env.YT_RELAY_URL || '').replace(/\/$/, '');
+  if (!base) return null;
+  try {
+    const u = new URL(input);
+    if (u.hostname !== 'youtube.com' && !u.hostname.endsWith('.youtube.com')) return null;
+    if (!u.pathname.startsWith('/youtubei/')) return null;
+    return `${base}${u.pathname}${u.search}`;
+  } catch { return null; }
+}
+
 async function ytFetch(input: string | URL, init: RequestInit = {}): Promise<globalThis.Response> {
   if (ytDispatcher) return undiciFetch(input, { ...init, dispatcher: ytDispatcher } as any) as any;
+  const relayed = relayUrl(String(input));
+  if (relayed) return fetch(relayed, init);
   return fetch(input, init);
 }
 
