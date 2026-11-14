@@ -22,6 +22,11 @@ services:
     plan: free
     region: oregon
     dockerfilePath: cobalt/Dockerfile
+    dockerContext: ./cobalt
+    # Build context is the cobalt/ directory, so the Dockerfile's
+    # `COPY entrypoint.sh` resolves there. Without this, Render defaults
+    # the context to the repo root and the build fails with
+    # "COPY failed: file not found" (hit on the first sync, Nov 14).
     healthCheckPath: /
     autoDeploy: true
     envVars:

@@ -104,6 +104,7 @@ it should resolve and download.
 | App says "…download server, which is not configured yet" | `COBALT_API_URL` / `COBALT_API_KEY` are missing in Vercel, or the deploy after adding them has not run yet. |
 | `{"status":"error","error":{"code":"error.api.auth.invalid"}}` from curl | The `Authorization: Api-Key …` value does not match the `COBALT_API_KEY` set in Render. Rotate both to the same new UUID. |
 | Render deploy fails on the Dockerfile | Paste the build log — the wrapper is tiny (entrypoint + key file) and this is the first thing to check. |
+| Build log says `COPY failed: file not found` (entrypoint.sh) | Fixed in `render.yaml` (`dockerContext: ./cobalt`) — click **Manual sync** on the Blueprint page to re-sync from the fixed commit. |
 | Instance is Live but `/` returns 502 for a minute | The container is still booting (first boot downloads nothing, but Cobalt takes ~30s to be ready). Wait and retry. |
 
 ## Rotating the key
