@@ -112,7 +112,7 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
 
   it('beta, coming-soon and disabled tools stay noindex and excluded from the sitemap', () => {
     const nonIndexable = TOOL_REGISTRY.filter((t) => t.status !== 'functional');
-    expect(nonIndexable.length).toBe(27); // 14 beta + 1 coming-soon + 12 disabled
+    expect(nonIndexable.length).toBe(16); // 14 beta + 1 coming-soon + 1 disabled
 
     for (const tool of nonIndexable) {
       expect(tool.isIndexable).toBe(false);

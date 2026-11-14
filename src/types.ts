@@ -68,6 +68,17 @@ export type ToolComponentKey =
   | 'reaction-test'
   | 'anagram-solver'
   | 'sudoku-solver'
+  | 'password-gen'
+  | 'hash-generator'
+  | 'yaml-to-json'
+  | 'scientific-calc'
+  | 'bmr-calc'
+  | 'step-sim'
+  | 'currency-converter'
+  | 'exif-viewer'
+  | 'excel-to-csv'
+  | 'silence-remover'
+  | 'vocal-remover'
   | 'generic';
 
 export interface ToolDefinition {

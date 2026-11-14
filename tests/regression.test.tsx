@@ -7,7 +7,7 @@ import { TOOL_BY_ID } from '../src/toolsData';
 vi.mock('../src/components/GenericUtilityWorkspace', () => ({ default: () => <div data-testid="generic-workspace">Generic workspace</div> }));
 
 describe('unavailable-route regressions', () => {
-  it.each(['exif-viewer', 'yaml-to-json', 'scientific-calc'] as const)('%s cannot mount executable generic code', (id) => {
+  it.each(['audio-transcriber', 'port-scanner'] as const)('%s cannot mount executable generic code', (id) => {
     render(<ToolWorkspace tool={TOOL_BY_ID[id]} onBack={() => undefined} />);
     expect(screen.queryByTestId('generic-workspace')).not.toBeInTheDocument();
     expect(screen.queryByText(/success|camera model|yaml converter simulation|action triggered/i)).not.toBeInTheDocument();

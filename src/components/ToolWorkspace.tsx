@@ -57,6 +57,17 @@ const TriviaQuiz = lazy(() => import('./TriviaQuiz'));
 const ReactionTest = lazy(() => import('./ReactionTest'));
 const AnagramSolver = lazy(() => import('./AnagramSolver'));
 const SudokuSolver = lazy(() => import('./SudokuSolver'));
+const PasswordGenerator = lazy(() => import('./PasswordGenerator'));
+const HashGenerator = lazy(() => import('./HashGenerator'));
+const YamlToJson = lazy(() => import('./YamlToJson'));
+const ScientificCalc = lazy(() => import('./ScientificCalc'));
+const BmrCalc = lazy(() => import('./BmrCalc'));
+const StepSim = lazy(() => import('./StepSim'));
+const CurrencyConverter = lazy(() => import('./CurrencyConverter'));
+const ExifViewer = lazy(() => import('./ExifViewer'));
+const ExcelToCsv = lazy(() => import('./ExcelToCsv'));
+const SilenceRemover = lazy(() => import('./SilenceRemover'));
+const VocalRemover = lazy(() => import('./VocalRemover'));
 
 interface ToolWorkspaceProps {
   tool: ToolDefinition;
@@ -235,6 +246,17 @@ function renderEnabledTool(tool: ToolDefinition, onBack: () => void, initialFile
     case 'reaction-test': return <ReactionTest onBack={onBack} />;
     case 'anagram-solver': return <AnagramSolver onBack={onBack} />;
     case 'sudoku-solver': return <SudokuSolver onBack={onBack} />;
+    case 'password-gen': return <PasswordGenerator onBack={onBack} />;
+    case 'hash-generator': return <HashGenerator onBack={onBack} />;
+    case 'yaml-to-json': return <YamlToJson onBack={onBack} />;
+    case 'scientific-calc': return <ScientificCalc onBack={onBack} />;
+    case 'bmr-calc': return <BmrCalc onBack={onBack} />;
+    case 'step-sim': return <StepSim onBack={onBack} />;
+    case 'currency-converter': return <CurrencyConverter onBack={onBack} />;
+    case 'exif-viewer': return <ExifViewer onBack={onBack} />;
+    case 'excel-to-csv': return <ExcelToCsv onBack={onBack} />;
+    case 'silence-remover': return <SilenceRemover onBack={onBack} initialFile={initialFile} />;
+    case 'vocal-remover': return <VocalRemover onBack={onBack} initialFile={initialFile} />;
     case 'generic': return <GenericUtilityWorkspace tool={tool} onBack={onBack} initialFile={initialFile} />;
     case undefined: throw new Error(`Enabled tool ${tool.id} is missing a component key.`);
   }

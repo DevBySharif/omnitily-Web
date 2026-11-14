@@ -31,9 +31,9 @@ describe('truthful route availability', () => {
   });
 
   it('shows the disabled reason without mounting risky code', () => {
-    render(<ToolWorkspace tool={TOOL_BY_ID['scientific-calc']} onBack={back} />);
+    render(<ToolWorkspace tool={TOOL_BY_ID['audio-transcriber']} onBack={back} />);
     expect(screen.getByText('Temporarily Unavailable')).toBeInTheDocument();
-    expect(screen.getByText(/executed user input as JavaScript/i)).toBeInTheDocument();
+    expect(screen.getByText(/Server-based transcription is temporarily unavailable in the free deployment/i)).toBeInTheDocument();
     expect(screen.queryByTestId('generic-workspace')).not.toBeInTheDocument();
   });
 

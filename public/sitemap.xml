@@ -116,6 +116,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/exif-viewer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/favicon-generator</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -161,6 +166,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/excel-to-csv</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/pdf-merger</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -182,6 +192,16 @@
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/voice-changer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/vocal-remover</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/silence-remover</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -296,7 +316,17 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/hash-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/uuid-generator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/yaml-to-json</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -346,7 +376,17 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/scientific-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/unit-converter</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/currency-converter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -381,6 +421,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/bmr-calc</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/calorie-counter</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -396,6 +441,11 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://omnitily.vercel.app/tools/step-sim</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://omnitily.vercel.app/tools/habit-tracker</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
@@ -407,6 +457,11 @@
   </url>
   <url>
     <loc>https://omnitily.vercel.app/tools/sleep-calculator</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://omnitily.vercel.app/tools/password-gen</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>

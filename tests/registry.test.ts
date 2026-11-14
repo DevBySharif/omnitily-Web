@@ -9,7 +9,7 @@ describe('typed tool registry', () => {
 
   it('uses the zero-cost catalog totals and disables transcription truthfully', () => {
     const totals = Object.fromEntries(['functional', 'beta', 'coming-soon', 'disabled'].map((status) => [status, TOOL_REGISTRY.filter((tool) => tool.status === status).length]));
-    expect(totals).toEqual({ functional: 90, beta: 14, 'coming-soon': 1, disabled: 12 });
+    expect(totals).toEqual({ functional: 101, beta: 14, 'coming-soon': 1, disabled: 1 });
     expect(TOOL_BY_ID['audio-transcriber']).toMatchObject({ status: 'disabled', processingType: 'none', isIndexable: false });
     expect(TOOL_BY_ID['audio-transcriber'].componentKey).toBeUndefined();
     expect(TOOL_BY_ID['audio-transcriber'].statusReason).toMatch(/Server-based transcription is temporarily unavailable/i);
@@ -51,10 +51,10 @@ describe('typed tool registry', () => {
     for (const tool of TOOL_REGISTRY.filter((candidate) => candidate.status === 'disabled')) expect(tool.statusReason).toBeTruthy();
   });
 
-  it('exposes public catalog selectors limited to the 90 functional tools', () => {
-    expect(FUNCTIONAL_TOOLS).toHaveLength(90);
-    expect(PUBLIC_TOOLS).toHaveLength(90);
-    expect(HIDDEN_TOOLS).toHaveLength(27);
+  it('exposes public catalog selectors limited to the 101 functional tools', () => {
+    expect(FUNCTIONAL_TOOLS).toHaveLength(101);
+    expect(PUBLIC_TOOLS).toHaveLength(101);
+    expect(HIDDEN_TOOLS).toHaveLength(16);
     expect(PUBLIC_TOOLS.every((tool) => tool.status === 'functional')).toBe(true);
     expect(HIDDEN_TOOLS.every((tool) => tool.status !== 'functional')).toBe(true);
     expect(PUBLIC_TOOLS.length + HIDDEN_TOOLS.length).toBe(TOOL_REGISTRY.length);
