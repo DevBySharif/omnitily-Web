@@ -383,7 +383,19 @@ export default function PlatformDownloader({ platform, icon, description }: Plat
                     {resolvedThumbnail ? (
                       <img src={resolvedThumbnail} alt="" className="w-28 aspect-video object-cover rounded shrink-0" referrerPolicy="no-referrer" />
                     ) : resolvedUrl ? (
-                      <video src={resolvedUrl} className="w-28 aspect-video object-cover rounded shrink-0 bg-zinc-800" preload="metadata" muted playsInline />
+                      <span className="relative w-28 aspect-video rounded shrink-0 bg-zinc-800 overflow-hidden inline-flex items-center justify-center">
+                        <Play className="w-6 h-6 text-zinc-600" />
+                        <video
+                          src={`/api/media-proxy?url=${encodeURIComponent(resolvedUrl)}&filename=preview.mp4`}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          preload="metadata"
+                          muted
+                          playsInline
+                          style={{ opacity: 0 }}
+                          onLoadedData={e => { e.currentTarget.style.opacity = '1'; }}
+                          onError={e => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </span>
                     ) : null}
                     <div className="flex-1 min-w-0">
                       <span className="text-[9px] font-bold uppercase tracking-widest bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/25">

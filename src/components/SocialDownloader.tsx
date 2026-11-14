@@ -35,6 +35,11 @@ const QUALITIES = [
   { id: 'mp3',   label: 'MP3 Audio' },
 ];
 
+const fmtDuration = (seconds: number) => {
+  const total = Math.floor(seconds);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+};
+
 export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -44,6 +49,12 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
   const [progress, setProgress] = useState(0);
   const [selectedQuality, setSelectedQuality] = useState(0);
   const [isReResolving, setIsReResolving] = useState(false);
+  // Preview state for the in-card video: while the first frame is still
+  // loading the card shows an explicit "Loading preview…" overlay instead
+  // of a black box, and a failed preview falls back to a placeholder (the
+  // download button is unaffected).
+  const [previewStatus, setPreviewStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [previewDuration, setPreviewDuration] = useState('');
 
   // Hostname-based: substring matching mis-detected lookalike hosts
   // (e.g. fakeyoutube.com) as the real platform.
@@ -102,6 +113,8 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
 
       const d = await r.json();
       setMeta({ title: d.title, thumbnail: d.thumbnail, duration: d.duration, platform: d.platform, videoUrl: d.videoUrl });
+      setPreviewStatus('loading');
+      setPreviewDuration('');
       setStatus('ready');
     } catch {
       clearInterval(iv);
@@ -124,6 +137,8 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
       if (!r.ok) { let errMsg = 'Failed to switch quality.'; try { const e = await r.json(); if (e.error) errMsg = typeof e.error === 'string' ? e.error : e.error.message || errMsg; } catch { /* */ } throw new Error(errMsg); }
       const d = await r.json();
       setMeta(prev => prev ? { ...prev, videoUrl: d.videoUrl } : null);
+      setPreviewStatus('loading');
+      setPreviewDuration('');
     } catch (e: any) {
       setErrorMsg(e.message || 'Error switching quality.');
       setStatus('error');
@@ -187,7 +202,7 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
     }
   };
 
-  const reset = () => { setUrl(''); setStatus('idle'); setMeta(null); setProgress(0); setSelectedQuality(0); setIsReResolving(false); };
+  const reset = () => { setUrl(''); setStatus('idle'); setMeta(null); setProgress(0); setSelectedQuality(0); setIsReResolving(false); setPreviewStatus('loading'); setPreviewDuration(''); };
 
   // Preview rule: when the resolved stream is a video, show the video
   // itself (its first frame is the true preview). The thumbnail is only
@@ -196,6 +211,18 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
   // there is no stock-photo fallback — the video preview is the preview.
   const isAudioQuality = QUALITIES[selectedQuality].id === 'mp3';
   const showVideoPreview = Boolean(meta?.videoUrl) && !isAudioQuality;
+  // The preview is served through /api/media-proxy — the same proven path
+  // the download uses (Range forwarding, redirect re-validation). A raw
+  // tunnel/redirect URL in the <video> tag left a black frame while the
+  // first bytes were still in flight; the proxy path loads from the warm
+  // server and the fast CDN instead.
+  const previewUrl = meta?.videoUrl
+    ? `/api/media-proxy?url=${encodeURIComponent(meta.videoUrl)}&filename=preview.mp4`
+    : '';
+  // Real duration once the video metadata loads; Cobalt gives no duration
+  // for Instagram/Facebook, so the preview's own duration is the proof
+  // the right video resolved.
+  const displayDuration = previewDuration || (meta?.duration && meta.duration !== '00:00' ? meta.duration : '');
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6" id="social-downloader-tool">
@@ -275,14 +302,44 @@ export default function SocialDownloader({ onBack }: SocialDownloaderProps) {
               <div className="flex flex-col md:flex-row">
                 <div className="w-full md:w-60 aspect-video bg-[#0a0a0a] shrink-0 relative overflow-hidden">
                   {showVideoPreview ? (
-                    <video src={meta.videoUrl} className="w-full h-full object-cover" preload="metadata" controls muted playsInline />
+                    <>
+                      {previewStatus !== 'error' && (
+                        <video
+                          key={meta.videoUrl}
+                          src={previewUrl}
+                          className="w-full h-full object-cover"
+                          preload="metadata"
+                          controls
+                          muted
+                          playsInline
+                          onLoadedData={() => setPreviewStatus('ready')}
+                          onLoadedMetadata={e => {
+                            const d = e.currentTarget.duration;
+                            if (Number.isFinite(d) && d > 0) setPreviewDuration(fmtDuration(d));
+                          }}
+                          onError={() => setPreviewStatus('error')}
+                        />
+                      )}
+                      {previewStatus === 'loading' && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#0a0a0a]">
+                          <ArrowsCounterClockwise className="w-5 h-5 text-[#10b981] animate-spin" />
+                          <span className="text-[10px] font-mono text-[#10b981]">Loading preview…</span>
+                        </div>
+                      )}
+                      {previewStatus === 'error' && (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                          <Play className="w-10 h-10 text-gray-700" />
+                          <span className="text-[10px] text-gray-500">Preview unavailable — download still works</span>
+                        </div>
+                      )}
+                    </>
                   ) : meta.thumbnail ? (
                     <img src={meta.thumbnail} alt="thumb" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center"><Play className="w-10 h-10 text-gray-700" /></div>
                   )}
-                  {!showVideoPreview && meta.duration && meta.duration !== '00:00' && (
-                    <span className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/80 rounded text-[10px] font-mono text-white font-bold">{meta.duration}</span>
+                  {displayDuration && (
+                    <span className={`absolute ${showVideoPreview ? 'top-2' : 'bottom-2'} right-2 px-1.5 py-0.5 bg-black/80 rounded text-[10px] font-mono text-white font-bold`}>{displayDuration}</span>
                   )}
                 </div>
                 <div className="flex-1 p-5 flex flex-col justify-between gap-4">

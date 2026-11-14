@@ -881,8 +881,16 @@ describe('PlatformDownloader component', () => {
     expect(await screen.findByText('clip.mp4')).toBeInTheDocument();
     const video = container.querySelector('video');
     expect(video).not.toBeNull();
-    expect(video?.getAttribute('src')).toBe('https://93.184.216.34/v.mp4');
+    // Preview runs through the media proxy (the proven download path),
+    // not the raw tunnel URL.
+    expect(video?.getAttribute('src')).toBe(
+      `/api/media-proxy?url=${encodeURIComponent('https://93.184.216.34/v.mp4')}&filename=preview.mp4`,
+    );
     expect(container.querySelector('img')).toBeNull();
+    // The frame stays hidden until the first frame actually loads.
+    expect(video?.style.opacity).toBe('0');
+    fireEvent.loadedData(video as Element);
+    expect(video?.style.opacity).toBe('1');
   });
 
   it('shows an honest error when both the Cobalt and fallback resolvers fail', async () => {
@@ -1019,9 +1027,45 @@ describe('SocialDownloader component', () => {
     expect(await screen.findByText('instagram DeX6KRsTz1K')).toBeInTheDocument();
     const video = container.querySelector('video');
     expect(video).not.toBeNull();
-    expect(video?.getAttribute('src')).toBe('https://cdn.example/ig.mp4');
+    // Preview runs through the media proxy (the proven download path),
+    // not the raw stream URL.
+    expect(video?.getAttribute('src')).toBe(
+      `/api/media-proxy?url=${encodeURIComponent('https://cdn.example/ig.mp4')}&filename=preview.mp4`,
+    );
     // No generic image anywhere in the result card.
     expect(container.querySelector('img')).toBeNull();
+    // While the first frame is still loading, the card says so explicitly
+    // instead of showing a black box.
+    expect(screen.getByText('Loading preview…')).toBeInTheDocument();
+    // Once the video metadata loads, the real duration is shown
+    // (Cobalt gives no duration for Instagram).
+    Object.defineProperty(video, 'duration', { value: 42, configurable: true });
+    fireEvent.loadedMetadata(video as Element);
+    expect(screen.getByText('00:42')).toBeInTheDocument();
+    fireEvent.loadedData(video as Element);
+    expect(screen.queryByText('Loading preview…')).not.toBeInTheDocument();
+  });
+
+  it('falls back gracefully when the preview fails to load', async () => {
+    fetchHandler = (url) => {
+      if (url.startsWith('/api/resolve-social')) {
+        return jsonResponse(200, {
+          title: 'instagram DeX6KRsTz1K', thumbnail: '',
+          videoUrl: 'https://cdn.example/ig.mp4', duration: '00:00',
+          platform: 'Instagram', qualityServed: 'original',
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    };
+    const { container } = renderSocial();
+    fireEvent.change(screen.getByPlaceholderText(/youtu\.be/i), { target: { value: IG_URL } });
+    fireEvent.click(screen.getByRole('button', { name: /Download →/ }));
+    expect(await screen.findByText('instagram DeX6KRsTz1K')).toBeInTheDocument();
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    fireEvent.error(video as Element);
+    expect(screen.getByText('Preview unavailable — download still works')).toBeInTheDocument();
+    expect(container.querySelector('video')).toBeNull();
   });
 
   it('shows the server error honestly when resolution fails', async () => {
