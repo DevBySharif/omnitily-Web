@@ -7,7 +7,10 @@ try { base = new URL(input); } catch { console.error('Invalid base URL.'); proce
 if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.pathname !== '/') { console.error('Base URL must be an origin without credentials or a path.'); process.exit(2); }
 const allowedOrigin = value('--allowed-origin') || base.origin;
 const { INDEXABLE_TOOLS } = await import('../src/toolsData.ts');
-const expectedSitemapUrls = 1 + INDEXABLE_TOOLS.length;
+const { LEGAL_PAGE_LIST } = await import('../src/lib/legalContent.ts');
+const { CATEGORY_HUBS } = await import('../src/lib/categoryHubs.ts');
+// 1 home + indexable tools + legal pages + category hubs + about page.
+const expectedSitemapUrls = 1 + INDEXABLE_TOOLS.length + LEGAL_PAGE_LIST.length + CATEGORY_HUBS.length + 1;
 const checks = [];
 const record = (name, pass, detail = '') => checks.push({ name, pass, detail });
 async function get(path, init = {}) { return fetch(new URL(path, base), { ...init, redirect: 'manual', signal: AbortSignal.timeout(8000) }); }

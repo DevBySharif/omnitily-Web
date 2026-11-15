@@ -3,6 +3,24 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HIDDEN_TOOLS, INDEXABLE_TOOLS } from '../src/toolsData.ts';
 import { LEGAL_PAGE_LIST, type LegalPage } from '../src/lib/legalContent.ts';
+import { TOOL_CONTENT_VIDEO_IMAGE, type ToolContent } from '../src/lib/toolContent-video-image.ts';
+import { TOOL_CONTENT_DOCUMENT_AUDIO_TEXT } from '../src/lib/toolContent-document-audio-text.ts';
+import { TOOL_CONTENT_DEVELOPER_MATH } from '../src/lib/toolContent-developer-math.ts';
+import { TOOL_CONTENT_HEALTH_FUN_TEXT } from '../src/lib/toolContent-health-fun-text.ts';
+import { TOOL_SEO_TITLES } from '../src/lib/toolSeoTitles.ts';
+import { CATEGORY_HUBS } from '../src/lib/categoryHubs.ts';
+import { ABOUT_PAGE, type AboutPage } from '../src/lib/aboutContent.ts';
+
+// Merged FAQ / HowTo / features content for all 101 functional tools.
+const TOOL_CONTENT: Record<string, ToolContent> = {
+  ...TOOL_CONTENT_VIDEO_IMAGE,
+  ...TOOL_CONTENT_DOCUMENT_AUDIO_TEXT,
+  ...TOOL_CONTENT_DEVELOPER_MATH,
+  ...TOOL_CONTENT_HEALTH_FUN_TEXT,
+};
+
+// Category display name → hub slug (for breadcrumb links to hub pages).
+const CATEGORY_SLUG_BY_NAME = new Map(CATEGORY_HUBS.map((hub) => [hub.category, hub.slug]));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,11 +65,14 @@ function buildMetaAndHead(options: {
     `<meta property="og:title" content="${escapeHtml(title)}" />`,
     `<meta property="og:description" content="${escapeHtml(description)}" />`,
     canonical ? `<meta property="og:url" content="${escapeHtml(canonical)}" />` : '',
-    `<meta property="og:image" content="${DOMAIN}/og-image.svg" />`,
+    `<meta property="og:image" content="${DOMAIN}/og-image.png" />`,
+    `<meta property="og:image:width" content="1200" />`,
+    `<meta property="og:image:height" content="630" />`,
+    `<meta property="og:image:alt" content="Omnitily — Free Online Tools" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(description)}" />`,
-    `<meta name="twitter:image" content="${DOMAIN}/og-image.svg" />`,
+    `<meta name="twitter:image" content="${DOMAIN}/og-image.png" />`,
     jsonLdTags,
   ].join('\n    ');
 }
@@ -102,14 +123,34 @@ const orgSchema = {
   logo: `${DOMAIN}/favicon.svg`,
 };
 
+const homepageWebAppSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: 'Omnitily',
+  url: `${DOMAIN}/`,
+  applicationCategory: 'UtilitiesApplication',
+  operatingSystem: 'Web Browser',
+  isAccessibleForFree: true,
+  offers: {
+    '@type': 'Offer',
+    price: '0',
+    priceCurrency: 'USD',
+  },
+  featureList: [...CATEGORY_HUBS.map((hub) => hub.category), 'Free online tools'],
+};
+
 const homepageHead = buildMetaAndHead({
   title: homepageTitle,
   description: homepageDesc,
   canonical: homepageCanonical,
   robots: homepageRobots,
   keywords: homepageKeywords,
-  jsonLdScripts: [webSiteSchema, orgSchema],
+  jsonLdScripts: [webSiteSchema, orgSchema, homepageWebAppSchema],
 });
+
+const homepageHubLinks = CATEGORY_HUBS.map((hub) => `
+      <a href="/tools/${hub.slug}" class="text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:underline">${escapeHtml(hub.category)}</a>
+`).join('');
 
 const homepageToolsGrid = INDEXABLE_TOOLS.map((t) => `
   <a href="/tools/${t.id}" class="tool-card border border-zinc-800 bg-[#111114] rounded-xl p-5 shadow-xl hover:border-emerald-500/30 flex flex-col justify-between gap-4">
@@ -147,6 +188,11 @@ const homepageBody = `
       <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">${escapeHtml(homepageIntro)}</p>
     </section>
 
+    <nav aria-label="Browse by category" class="mb-8 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <span class="text-xs font-bold uppercase tracking-wider text-zinc-500 font-mono">Browse by category:</span>
+      ${homepageHubLinks}
+    </nav>
+
     <section aria-labelledby="all-tools-heading">
       <h2 id="all-tools-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">Available Indexable Utilities (${INDEXABLE_TOOLS.length})</h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -173,8 +219,9 @@ await writeFile(join(distDir, 'index.html'), prerenderedHomepageHtml, 'utf8');
 
 // 1b. Prerender Static Legal Pages (Privacy Policy / Terms of Service)
 // Same content as the SPA's LegalPageView, so crawlers and reviewers see
-// the full text without JavaScript.
-function legalBodyHtml(page: LegalPage): string {
+// the full text without JavaScript. Also renders the About page, whose
+// shape mirrors LegalPage (title / intro / sections / lastUpdated).
+function legalBodyHtml(page: LegalPage | AboutPage): string {
   const introHtml = page.intro
     .map((paragraph) => `<p class="text-zinc-400 text-sm leading-relaxed">${escapeHtml(paragraph)}</p>`)
     .join('\n      ');
@@ -268,11 +315,60 @@ for (const page of LEGAL_PAGE_LIST) {
   legalCount++;
 }
 
+// 1c. Prerender the About page (same renderer as the legal pages).
+const aboutCanonical = `${DOMAIN}/about`;
+const aboutWebPageSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebPage',
+  name: ABOUT_PAGE.title,
+  url: aboutCanonical,
+  description: ABOUT_PAGE.description,
+};
+const aboutBreadcrumbSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'Home',
+      item: `${DOMAIN}/`,
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: ABOUT_PAGE.title,
+      item: aboutCanonical,
+    },
+  ],
+};
+const aboutHead = buildMetaAndHead({
+  title: `${ABOUT_PAGE.title} - Omnitily`,
+  description: ABOUT_PAGE.description,
+  canonical: aboutCanonical,
+  robots: 'index, follow',
+  keywords: 'about omnitily, free online tools',
+  jsonLdScripts: [aboutWebPageSchema, aboutBreadcrumbSchema],
+});
+const aboutHtml = injectHeadAndBody(template, aboutHead, legalBodyHtml(ABOUT_PAGE));
+const aboutDir = join(distDir, 'about');
+await mkdir(aboutDir, { recursive: true });
+await writeFile(join(aboutDir, 'index.html'), aboutHtml, 'utf8');
+const aboutCount = 1;
+
 // 2. Prerender All Indexable (Public Functional) Tool Pages
 let prerenderCount = 0;
 for (const tool of INDEXABLE_TOOLS) {
   const canonical = `${DOMAIN}/tools/${tool.id}`;
-  const title = `${tool.name} - Omnitily`;
+  const title = TOOL_SEO_TITLES[tool.id] ?? `${tool.name} - Omnitily`;
+  // Every functional tool must have FAQ / HowTo / features content; fail
+  // the build loudly rather than shipping a thin page.
+  const content = TOOL_CONTENT[tool.id];
+  if (!content) {
+    throw new Error(`SEO P1: missing FAQ/HowTo content for functional tool "${tool.id}"`);
+  }
+  const hubSlug = CATEGORY_SLUG_BY_NAME.get(tool.category);
+  const categoryUrl = hubSlug ? `${DOMAIN}/tools/${hubSlug}` : `${DOMAIN}/`;
   const processingCopy = tool.processingType === 'browser'
     ? 'Processed locally in your browser.'
     : tool.processingType === 'server'
@@ -292,12 +388,31 @@ for (const tool of INDEXABLE_TOOLS) {
     operatingSystem: 'Web Browser',
     applicationCategory: tool.category || 'UtilityApplication',
     description: tool.description,
+    isAccessibleForFree: true,
+    featureList: content.features,
+    author: {
+      '@type': 'Organization',
+      name: 'Omnitily',
+    },
     offers: {
       '@type': 'Offer',
       price: '0.00',
       priceCurrency: 'USD',
     },
     browserRequirements: 'Requires HTML5 compatible web browser',
+  };
+
+  const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: content.faqs.map((faq) => ({
+      '@type': 'Question',
+      name: faq.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: faq.answer,
+      },
+    })),
   };
 
   const breadcrumbSchema = {
@@ -314,7 +429,7 @@ for (const tool of INDEXABLE_TOOLS) {
         '@type': 'ListItem',
         position: 2,
         name: tool.category || 'Utilities',
-        item: `${DOMAIN}/`,
+        item: categoryUrl,
       },
       {
         '@type': 'ListItem',
@@ -331,7 +446,7 @@ for (const tool of INDEXABLE_TOOLS) {
     canonical,
     robots,
     keywords,
-    jsonLdScripts: [webAppSchema, breadcrumbSchema],
+    jsonLdScripts: [webAppSchema, faqSchema, breadcrumbSchema],
   });
 
   const sameCategory = INDEXABLE_TOOLS.filter((t) => t.id !== tool.id && t.category === tool.category);
@@ -359,7 +474,7 @@ for (const tool of INDEXABLE_TOOLS) {
       <ol class="flex items-center gap-1.5 flex-wrap">
         <li><a href="/" class="hover:text-emerald-400 font-medium">Home</a></li>
         <li class="text-zinc-600">/</li>
-        <li><span class="text-zinc-400 font-medium">${escapeHtml(tool.category)}</span></li>
+        <li><a href="${categoryUrl.replace(DOMAIN, '')}" class="hover:text-emerald-400 font-medium">${escapeHtml(tool.category)}</a></li>
         <li class="text-zinc-600">/</li>
         <li><span class="text-emerald-400 font-semibold truncate max-w-[200px]" aria-current="page">${escapeHtml(tool.name)}</span></li>
       </ol>
@@ -368,6 +483,27 @@ for (const tool of INDEXABLE_TOOLS) {
       <h1 class="text-3xl font-extrabold text-white tracking-tight mb-2">${escapeHtml(tool.name)}</h1>
       <p class="text-zinc-400 text-sm mb-6 leading-relaxed">${escapeHtml(description)}</p>
     </div>
+    <section aria-labelledby="how-to-heading" class="mx-auto max-w-4xl px-4 mt-10 pt-6 border-t border-zinc-800/60">
+      <h2 id="how-to-heading" class="text-lg font-bold tracking-tight text-white">${escapeHtml(content.howToTitle)}</h2>
+      <p class="text-zinc-400 text-sm mt-2 leading-relaxed">${escapeHtml(content.howToIntro)}</p>
+      <ol class="list-decimal space-y-1.5 pl-5 mt-3 text-zinc-400 text-sm leading-relaxed">
+        ${content.howToSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+      </ol>
+    </section>
+    <section aria-labelledby="faq-heading" class="mx-auto max-w-4xl px-4 mt-10 pt-6 border-t border-zinc-800/60">
+      <h2 id="faq-heading" class="text-lg font-bold tracking-tight text-white">Frequently asked questions</h2>
+      ${content.faqs.map((faq) => `
+      <div class="mt-4">
+        <h3 class="text-sm font-semibold text-white">${escapeHtml(faq.question)}</h3>
+        <p class="text-zinc-400 text-sm mt-1 leading-relaxed">${escapeHtml(faq.answer)}</p>
+      </div>`).join('')}
+    </section>
+    <section aria-labelledby="features-heading" class="mx-auto max-w-4xl px-4 mt-10 pt-6 border-t border-zinc-800/60">
+      <h2 id="features-heading" class="text-lg font-bold tracking-tight text-white">What you get</h2>
+      <ul class="list-disc space-y-1.5 pl-5 mt-3 text-zinc-400 text-sm leading-relaxed">
+        ${content.features.map((feature) => `<li>${escapeHtml(feature)}</li>`).join('')}
+      </ul>
+    </section>
     <section aria-labelledby="related-tools-heading" class="mx-auto max-w-4xl px-4 mt-10 pt-6 border-t border-zinc-800/60">
       <div class="flex items-center justify-between mb-4">
         <h2 id="related-tools-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono">Related ${escapeHtml(tool.category)} Utilities</h2>
@@ -386,6 +522,90 @@ for (const tool of INDEXABLE_TOOLS) {
   await mkdir(toolDir, { recursive: true });
   await writeFile(join(toolDir, 'index.html'), toolHtml, 'utf8');
   prerenderCount++;
+}
+
+// 2b. Prerender Category Hub Pages (/tools/<slug>)
+let hubCount = 0;
+for (const hub of CATEGORY_HUBS) {
+  const canonical = `${DOMAIN}/tools/${hub.slug}`;
+  const hubTools = INDEXABLE_TOOLS.filter((t) => t.category === hub.category);
+
+  const hubWebPageSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: hub.category,
+    url: canonical,
+    description: hub.description,
+  };
+
+  const hubBreadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: `${DOMAIN}/`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: hub.category,
+        item: canonical,
+      },
+    ],
+  };
+
+  const hubHead = buildMetaAndHead({
+    title: hub.title,
+    description: hub.description,
+    canonical,
+    robots: 'index, follow',
+    keywords: `${hub.category.toLowerCase()} tools, free online tools, omnitily`,
+    jsonLdScripts: [hubWebPageSchema, hubBreadcrumbSchema],
+  });
+
+  const hubToolsGrid = hubTools.map((t) => `
+  <a href="/tools/${t.id}" class="tool-card border border-zinc-800 bg-[#111114] rounded-xl p-5 shadow-xl hover:border-emerald-500/30 flex flex-col justify-between gap-4">
+    <div>
+      <span class="text-[9px] bg-zinc-850 text-zinc-400 border border-zinc-750 px-2 py-0.5 rounded font-mono uppercase tracking-wider">${escapeHtml(t.category)}</span>
+      <h3 class="font-sans font-bold text-base text-white tracking-tight mt-2">${escapeHtml(t.name)}</h3>
+      <p class="text-zinc-400 text-xs mt-1.5 leading-relaxed">${escapeHtml(t.description)}</p>
+    </div>
+    <div class="text-[10px] text-emerald-400 font-mono font-bold">Launch Workspace &rarr;</div>
+  </a>
+`).join('');
+
+  const hubBody = `
+<div class="min-h-screen bg-[#07080a] text-zinc-100 font-sans selection:bg-emerald-500/30">
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    <nav aria-label="Breadcrumb" class="mb-6 flex items-center gap-1.5 text-xs text-zinc-400">
+      <a href="/" class="font-medium hover:text-emerald-400">Home</a>
+      <span class="text-zinc-600">/</span>
+      <span class="font-semibold text-emerald-400" aria-current="page">${escapeHtml(hub.category)}</span>
+    </nav>
+    <h1 class="text-3xl font-extrabold tracking-tight text-white">${escapeHtml(hub.category)}</h1>
+    <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">${escapeHtml(hub.description)}</p>
+    <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">${escapeHtml(hub.intro)}</p>
+    <section aria-labelledby="hub-tools-heading" class="mt-10">
+      <h2 id="hub-tools-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">${escapeHtml(hub.category)} Tools (${hubTools.length})</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        ${hubToolsGrid}
+      </div>
+    </section>
+    <div class="mt-10 border-t border-zinc-800/60 pt-6">
+      <a href="/" class="text-xs font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300">&larr; Back to Omnitily</a>
+    </div>
+  </main>
+</div>
+`;
+
+  const hubHtml = injectHeadAndBody(template, hubHead, hubBody);
+  const hubDir = join(distDir, 'tools', hub.slug);
+  await mkdir(hubDir, { recursive: true });
+  await writeFile(join(hubDir, 'index.html'), hubHtml, 'utf8');
+  hubCount++;
 }
 
 // 3. Generate noindex raw HTML for known hidden routes.
@@ -457,4 +677,4 @@ const notFoundBody = `
 `;
 await writeFile(join(distDir, '404.html'), injectHeadAndBody(template, notFoundHead, notFoundBody), 'utf8');
 
-console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);
+console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${aboutCount} about page, ${hubCount} category hub pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);

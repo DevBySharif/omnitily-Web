@@ -37,16 +37,20 @@ import type { ToolDefinition } from './types';
 import { ToastProvider, useToast } from './components/Toast';
 import ToolWorkspace from './components/ToolWorkspace';
 import { ToolNotFound, ToolStatusBadge } from './components/ToolAvailability';
-import { PUBLIC_TOOLS, PUBLIC_TOOL_IDS, TOOL_BY_ID, TOOLS_LIST, TOOL_SHORTCUTS, isToolId, type ToolId } from './toolsData';
+import { INDEXABLE_TOOLS, PUBLIC_TOOLS, PUBLIC_TOOL_IDS, TOOL_BY_ID, TOOLS_LIST, TOOL_SHORTCUTS, isToolId, type ToolId } from './toolsData';
 import { SeoManager } from './components/SeoManager';
 import { LegalPageView } from './components/LegalPageView';
-import { LEGAL_PAGES, type LegalPageSlug } from './lib/legalContent';
+import { CategoryHubView } from './components/CategoryHubView';
+import { LEGAL_PAGES, type LegalPage, type LegalPageSlug } from './lib/legalContent';
+import { ABOUT_PAGE } from './lib/aboutContent';
+import { CATEGORY_HUBS } from './lib/categoryHubs';
 
 function AppContent() {
   const toast = useToast();
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [routeNotFound, setRouteNotFound] = useState(false);
-  const [staticPage, setStaticPage] = useState<LegalPageSlug | null>(null);
+  const [staticPage, setStaticPage] = useState<LegalPageSlug | 'about' | null>(null);
+  const [hubSlug, setHubSlug] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -65,11 +69,21 @@ function AppContent() {
   useEffect(() => {
     const handleUrlRouting = () => {
       const path = window.location.pathname;
-      const staticMatch = path.match(/^\/(privacy|terms)\/?$/);
+      const staticMatch = path.match(/^\/(privacy|terms|about)\/?$/);
       if (staticMatch) {
         setRouteNotFound(false);
         setActiveTool(null);
-        setStaticPage(staticMatch[1] as LegalPageSlug);
+        setHubSlug(null);
+        setStaticPage(staticMatch[1] as LegalPageSlug | 'about');
+        return;
+      }
+      // Category hub routes (/tools/<slug>) resolve before the tool-id lookup.
+      const hubMatch = path.match(/^\/tools\/(video|image|document|audio|text-writing|developer-tools|math-finance|health-lifestyle|fun-games)\/?$/);
+      if (hubMatch) {
+        setRouteNotFound(false);
+        setActiveTool(null);
+        setStaticPage(null);
+        setHubSlug(hubMatch[1]);
         return;
       }
       const match = path.match(/^\/tools\/([^/]+)/);
@@ -78,15 +92,18 @@ function AppContent() {
         if (isToolId(toolId)) {
           setRouteNotFound(false);
           setStaticPage(null);
+          setHubSlug(null);
           setActiveTool(toolId);
         } else {
           setRouteNotFound(true);
           setStaticPage(null);
+          setHubSlug(null);
           setActiveTool(null);
         }
       } else {
         setRouteNotFound(path !== '/');
         setStaticPage(null);
+        setHubSlug(null);
         setActiveTool(null);
       }
     };
@@ -101,20 +118,32 @@ function AppContent() {
       window.history.pushState(null, '', `/tools/${toolId}`);
       setRouteNotFound(false);
       setStaticPage(null);
+      setHubSlug(null);
       setActiveTool(toolId);
     } else {
       window.history.pushState(null, '', '/');
       setRouteNotFound(false);
       setStaticPage(null);
+      setHubSlug(null);
       setActiveTool(null);
     }
   };
 
-  const navigateToStaticPage = (page: LegalPageSlug) => {
+  const navigateToStaticPage = (page: LegalPageSlug | 'about') => {
     window.history.pushState(null, '', `/${page}`);
     setRouteNotFound(false);
     setActiveTool(null);
+    setHubSlug(null);
     setStaticPage(page);
+    window.scrollTo(0, 0);
+  };
+
+  const navigateToHub = (slug: string) => {
+    window.history.pushState(null, '', `/tools/${slug}`);
+    setRouteNotFound(false);
+    setActiveTool(null);
+    setStaticPage(null);
+    setHubSlug(slug);
     window.scrollTo(0, 0);
   };
 
@@ -405,6 +434,16 @@ function AppContent() {
 
   const activeToolObj: ToolDefinition | undefined = activeTool ? TOOL_BY_ID[activeTool] : undefined;
 
+  // Active category hub (if the current route is /tools/<hub-slug>) and its tools.
+  const activeHub = hubSlug ? CATEGORY_HUBS.find((hub) => hub.slug === hubSlug) : undefined;
+  const activeHubTools = activeHub
+    ? INDEXABLE_TOOLS.filter((tool) => tool.category === activeHub.category).map((tool) => ({
+        id: tool.id,
+        name: tool.name,
+        description: tool.description,
+      }))
+    : [];
+
   const visiblePinnedToolIds = pinnedToolIds.filter((id) => id && PUBLIC_TOOL_IDS.has(id as ToolId));
 
   return (
@@ -423,6 +462,7 @@ function AppContent() {
         processingType={activeToolObj?.processingType}
         routeNotFound={routeNotFound}
         staticPage={staticPage ?? undefined}
+        hubSlug={hubSlug}
       />
       
       {/* Universal Top Nav */}
@@ -476,10 +516,17 @@ function AppContent() {
         {routeNotFound ? (
           <ToolNotFound onBack={handleBack} />
         ) : staticPage ? (
-          /* Static legal page (Privacy Policy / Terms of Service) */
+          /* Static page (Privacy Policy / Terms of Service / About) */
           <div className="pan-enter">
-            <LegalPageView page={LEGAL_PAGES[staticPage]} />
+            {staticPage === 'about' ? (
+              <LegalPageView page={ABOUT_PAGE as unknown as LegalPage} />
+            ) : (
+              <LegalPageView page={LEGAL_PAGES[staticPage]} />
+            )}
           </div>
+        ) : activeHub ? (
+          /* Category hub page (/tools/<slug>) */
+          <CategoryHubView hub={activeHub} tools={activeHubTools} />
         ) : !activeTool ? (
           /* Dashboard View */
           <div
@@ -921,6 +968,24 @@ function AppContent() {
                 )}
               </div>
 
+              {/* Browse by category — hub pages */}
+              <nav aria-label="Browse by category" className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 max-w-xl mx-auto w-full">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 font-mono">Browse by category:</span>
+                {CATEGORY_HUBS.map((hub) => (
+                  <a
+                    key={hub.slug}
+                    href={`/tools/${hub.slug}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateToHub(hub.slug);
+                    }}
+                    className="text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:underline"
+                  >
+                    {hub.category}
+                  </a>
+                ))}
+              </nav>
+
               {/* SquaresFour Layout or Empty State */}
               {filteredTools.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
@@ -1073,6 +1138,17 @@ function AppContent() {
             </div>
           </div>
           <div className="flex gap-4">
+            <a
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToStaticPage('about');
+              }}
+              className="hover:text-white transition-colors"
+            >
+              About
+            </a>
+            <span>&bull;</span>
             <a
               href="/privacy"
               onClick={(e) => {
