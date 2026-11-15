@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HIDDEN_TOOLS, INDEXABLE_TOOLS } from '../src/toolsData.ts';
+import { LEGAL_PAGE_LIST, type LegalPage } from '../src/lib/legalContent.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -153,11 +154,119 @@ const homepageBody = `
       </div>
     </section>
   </main>
+
+  <footer class="border-t border-zinc-800/80 py-6 mt-12">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col items-center gap-3 text-[10px] uppercase tracking-widest text-gray-500 font-medium">
+      <span>Omnitily Utility Suite &bull; Release 2026</span>
+      <div class="flex gap-4">
+        <a href="/privacy" class="hover:text-white transition-colors">Privacy Policy</a>
+        <span>&bull;</span>
+        <a href="/terms" class="hover:text-white transition-colors">Terms of Service</a>
+      </div>
+    </div>
+  </footer>
 </div>
 `;
 
 const prerenderedHomepageHtml = injectHeadAndBody(template, homepageHead, homepageBody);
 await writeFile(join(distDir, 'index.html'), prerenderedHomepageHtml, 'utf8');
+
+// 1b. Prerender Static Legal Pages (Privacy Policy / Terms of Service)
+// Same content as the SPA's LegalPageView, so crawlers and reviewers see
+// the full text without JavaScript.
+function legalBodyHtml(page: LegalPage): string {
+  const introHtml = page.intro
+    .map((paragraph) => `<p class="text-zinc-400 text-sm leading-relaxed">${escapeHtml(paragraph)}</p>`)
+    .join('\n      ');
+
+  const sectionsHtml = page.sections
+    .map((section, sectionIndex) => {
+      const blocksHtml = section.blocks
+        .map((block) =>
+          block.kind === 'paragraph'
+            ? `<p class="text-zinc-400 text-sm leading-relaxed mt-3">${escapeHtml(block.text)}</p>`
+            : `<ul class="list-disc space-y-1.5 pl-5 mt-3 text-zinc-400 text-sm leading-relaxed">${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`,
+        )
+        .join('\n        ');
+      return `
+      <section class="mt-8 border-t border-zinc-800/60 pt-6">
+        <h2 class="text-lg font-bold tracking-tight text-white">${sectionIndex + 1}. ${escapeHtml(section.heading)}</h2>
+        ${blocksHtml}
+      </section>`;
+    })
+    .join('');
+
+  return `
+<div class="min-h-screen bg-[#07080a] text-zinc-100 font-sans selection:bg-emerald-500/30">
+  <main class="mx-auto max-w-4xl px-4 py-8">
+    <nav aria-label="Breadcrumb" class="mb-6 flex items-center gap-1.5 text-xs text-zinc-400">
+      <a href="/" class="font-medium hover:text-emerald-400">Home</a>
+      <span class="text-zinc-600">/</span>
+      <span class="font-semibold text-emerald-400" aria-current="page">${escapeHtml(page.title)}</span>
+    </nav>
+    <h1 class="text-3xl font-extrabold tracking-tight text-white">${escapeHtml(page.title)}</h1>
+    <p class="mt-2 text-xs font-mono uppercase tracking-wider text-zinc-500">Last updated: ${escapeHtml(page.lastUpdated)}</p>
+    <div class="mt-6 flex flex-col gap-4">
+      ${introHtml}
+    </div>
+    ${sectionsHtml}
+    <div class="mt-10 border-t border-zinc-800/60 pt-6">
+      <a href="/" class="text-xs font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300">&larr; Back to Omnitily</a>
+    </div>
+  </main>
+</div>
+`;
+}
+
+let legalCount = 0;
+for (const page of LEGAL_PAGE_LIST) {
+  const canonical = `${DOMAIN}/${page.slug}`;
+  const title = `${page.title} - Omnitily`;
+  const keywords = `${page.title.toLowerCase()}, omnitily legal, free online tools`;
+  const robots = 'index, follow';
+
+  const webPageSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: page.title,
+    url: canonical,
+    description: page.description,
+  };
+
+  const breadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: `${DOMAIN}/`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: page.title,
+        item: canonical,
+      },
+    ],
+  };
+
+  const legalHead = buildMetaAndHead({
+    title,
+    description: page.description,
+    canonical,
+    robots,
+    keywords,
+    jsonLdScripts: [webPageSchema, breadcrumbSchema],
+  });
+
+  const legalHtml = injectHeadAndBody(template, legalHead, legalBodyHtml(page));
+  const legalDir = join(distDir, page.slug);
+  await mkdir(legalDir, { recursive: true });
+  await writeFile(join(legalDir, 'index.html'), legalHtml, 'utf8');
+  legalCount++;
+}
 
 // 2. Prerender All Indexable (Public Functional) Tool Pages
 let prerenderCount = 0;
@@ -348,4 +457,4 @@ const notFoundBody = `
 `;
 await writeFile(join(distDir, '404.html'), injectHeadAndBody(template, notFoundHead, notFoundBody), 'utf8');
 
-console.log(`Prerendered Homepage, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);
+console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);

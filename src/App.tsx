@@ -39,11 +39,14 @@ import ToolWorkspace from './components/ToolWorkspace';
 import { ToolNotFound, ToolStatusBadge } from './components/ToolAvailability';
 import { PUBLIC_TOOLS, PUBLIC_TOOL_IDS, TOOL_BY_ID, TOOLS_LIST, TOOL_SHORTCUTS, isToolId, type ToolId } from './toolsData';
 import { SeoManager } from './components/SeoManager';
+import { LegalPageView } from './components/LegalPageView';
+import { LEGAL_PAGES, type LegalPageSlug } from './lib/legalContent';
 
 function AppContent() {
   const toast = useToast();
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [routeNotFound, setRouteNotFound] = useState(false);
+  const [staticPage, setStaticPage] = useState<LegalPageSlug | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -62,18 +65,28 @@ function AppContent() {
   useEffect(() => {
     const handleUrlRouting = () => {
       const path = window.location.pathname;
+      const staticMatch = path.match(/^\/(privacy|terms)\/?$/);
+      if (staticMatch) {
+        setRouteNotFound(false);
+        setActiveTool(null);
+        setStaticPage(staticMatch[1] as LegalPageSlug);
+        return;
+      }
       const match = path.match(/^\/tools\/([^/]+)/);
       if (match) {
         const toolId = match[1];
         if (isToolId(toolId)) {
           setRouteNotFound(false);
+          setStaticPage(null);
           setActiveTool(toolId);
         } else {
           setRouteNotFound(true);
+          setStaticPage(null);
           setActiveTool(null);
         }
       } else {
         setRouteNotFound(path !== '/');
+        setStaticPage(null);
         setActiveTool(null);
       }
     };
@@ -87,12 +100,22 @@ function AppContent() {
     if (toolId) {
       window.history.pushState(null, '', `/tools/${toolId}`);
       setRouteNotFound(false);
+      setStaticPage(null);
       setActiveTool(toolId);
     } else {
       window.history.pushState(null, '', '/');
       setRouteNotFound(false);
+      setStaticPage(null);
       setActiveTool(null);
     }
+  };
+
+  const navigateToStaticPage = (page: LegalPageSlug) => {
+    window.history.pushState(null, '', `/${page}`);
+    setRouteNotFound(false);
+    setActiveTool(null);
+    setStaticPage(page);
+    window.scrollTo(0, 0);
   };
 
   const savePinnedTools = (newIds: string[]) => {
@@ -399,6 +422,7 @@ function AppContent() {
         isIndexable={activeToolObj ? activeToolObj.isIndexable : !routeNotFound}
         processingType={activeToolObj?.processingType}
         routeNotFound={routeNotFound}
+        staticPage={staticPage ?? undefined}
       />
       
       {/* Universal Top Nav */}
@@ -451,6 +475,11 @@ function AppContent() {
       <main className="flex-grow max-w-6xl w-full mx-auto px-4 py-8 relative">
         {routeNotFound ? (
           <ToolNotFound onBack={handleBack} />
+        ) : staticPage ? (
+          /* Static legal page (Privacy Policy / Terms of Service) */
+          <div className="pan-enter">
+            <LegalPageView page={LEGAL_PAGES[staticPage]} />
+          </div>
         ) : !activeTool ? (
           /* Dashboard View */
           <div
@@ -1032,20 +1061,45 @@ function AppContent() {
 
       {/* Aesthetic Footer */}
       <footer className="bg-[#0c0c0e] border-t border-zinc-800/80 py-6 mt-12">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] uppercase tracking-widest text-gray-500 select-none font-medium">
-          <span className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/20" /> Omnitily Utility Suite &bull; Release 2026</span>
+        <div className="max-w-6xl mx-auto px-4 flex flex-col items-center gap-3 text-[10px] uppercase tracking-widest text-gray-500 select-none font-medium">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 w-full">
+            <span className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/20" /> Omnitily Utility Suite &bull; Release 2026</span>
+            <div className="flex gap-4">
+              <span className="hover:text-white transition-colors">Truthful Availability</span>
+              <span>&bull;</span>
+              <span className="hover:text-white transition-colors">Processing Disclosed</span>
+              <span>&bull;</span>
+              <span className="hover:text-white transition-colors">W3C Compliance</span>
+            </div>
+          </div>
           <div className="flex gap-4">
-            <span className="hover:text-white transition-colors">Truthful Availability</span>
+            <a
+              href="/privacy"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToStaticPage('privacy');
+              }}
+              className="hover:text-white transition-colors"
+            >
+              Privacy Policy
+            </a>
             <span>&bull;</span>
-            <span className="hover:text-white transition-colors">Processing Disclosed</span>
-            <span>&bull;</span>
-            <span className="hover:text-white transition-colors">W3C Compliance</span>
+            <a
+              href="/terms"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToStaticPage('terms');
+              }}
+              className="hover:text-white transition-colors"
+            >
+              Terms of Service
+            </a>
           </div>
         </div>
       </footer>
 
       {/* Global Drag-and-Drop Glassmorphic Overlay */}
-      {isGlobalDragging && activeTool === null && (
+      {isGlobalDragging && activeTool === null && staticPage === null && (
         <div 
           className="fixed inset-0 bg-black/90 backdrop-blur-md z-[100] flex flex-col items-center justify-center p-6 text-center select-none"
           onDragOver={handleDragOver}

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import type { ProcessingType } from '../types';
+import { LEGAL_PAGES, type LegalPageSlug } from '../lib/legalContent';
 
 interface SeoManagerProps {
   toolId: string | null;
@@ -9,6 +10,7 @@ interface SeoManagerProps {
   isIndexable: boolean;
   processingType?: ProcessingType;
   routeNotFound?: boolean;
+  staticPage?: LegalPageSlug;
 }
 
 const DOMAIN = 'https://omnitily.vercel.app';
@@ -41,6 +43,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
   isIndexable,
   processingType,
   routeNotFound = false,
+  staticPage,
 }) => {
   useEffect(() => {
     // Clean up previous JSON-LD script tags
@@ -49,7 +52,69 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
 
     const isToolView = Boolean(toolId && toolTitle && toolDescription && !routeNotFound);
 
-    if (routeNotFound) {
+    if (staticPage) {
+      const page = LEGAL_PAGES[staticPage];
+      const canonical = `${DOMAIN}/${page.slug}`;
+      const title = `${page.title} - Omnitily`;
+      const desc = page.description;
+
+      document.title = title;
+      setCanonicalUrl(canonical);
+      setMetaTag('name', 'description', desc);
+      setMetaTag('name', 'robots', 'index, follow');
+      setMetaTag('name', 'keywords', `${page.title.toLowerCase()}, omnitily legal, free online tools`);
+
+      setMetaTag('property', 'og:site_name', 'Omnitily');
+      setMetaTag('property', 'og:type', 'website');
+      setMetaTag('property', 'og:title', title);
+      setMetaTag('property', 'og:description', desc);
+      setMetaTag('property', 'og:url', canonical);
+      setMetaTag('property', 'og:image', `${DOMAIN}/og-image.svg`);
+
+      setMetaTag('name', 'twitter:card', 'summary_large_image');
+      setMetaTag('name', 'twitter:title', title);
+      setMetaTag('name', 'twitter:description', desc);
+      setMetaTag('name', 'twitter:image', `${DOMAIN}/og-image.svg`);
+
+      const webPageSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'WebPage',
+        name: page.title,
+        url: canonical,
+        description: desc,
+      };
+
+      const breadcrumbSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: 'Home',
+            item: `${DOMAIN}/`,
+          },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: page.title,
+            item: canonical,
+          },
+        ],
+      };
+
+      const pageScript = document.createElement('script');
+      pageScript.setAttribute('data-seo', 'omnitily-jsonld');
+      pageScript.type = 'application/ld+json';
+      pageScript.text = JSON.stringify(webPageSchema);
+      document.head.appendChild(pageScript);
+
+      const breadcrumbScript = document.createElement('script');
+      breadcrumbScript.setAttribute('data-seo', 'omnitily-jsonld');
+      breadcrumbScript.type = 'application/ld+json';
+      breadcrumbScript.text = JSON.stringify(breadcrumbSchema);
+      document.head.appendChild(breadcrumbScript);
+    } else if (routeNotFound) {
       const title = 'Page Not Found - Omnitily';
       const desc = 'The requested page or utility could not be found on Omnitily.';
       const canonical = `${DOMAIN}/`;
@@ -209,7 +274,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
       orgScript.text = JSON.stringify(orgSchema);
       document.head.appendChild(orgScript);
     }
-  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound]);
+  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound, staticPage]);
 
   return null;
 };

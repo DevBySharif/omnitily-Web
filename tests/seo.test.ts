@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { HIDDEN_TOOLS, INDEXABLE_TOOLS, TOOL_REGISTRY } from '../src/toolsData';
+import { LEGAL_PAGE_LIST } from '../src/lib/legalContent';
 
 describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
   it('robots.txt points to canonical sitemap URL on omnitily.vercel.app', () => {
@@ -12,17 +13,21 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
     expect(content).not.toContain('omnitily.com');
   });
 
-  it('sitemap.xml contains exactly 1 + indexable-tool canonical URLs on omnitily.vercel.app', () => {
+  it('sitemap.xml contains exactly 1 + indexable-tool + legal-page canonical URLs on omnitily.vercel.app', () => {
     expect(existsSync('public/sitemap.xml')).toBe(true);
     const content = readFileSync('public/sitemap.xml', 'utf8');
     expect(content).not.toContain('omnitily.com');
 
     const locs = content.match(/<loc>(https:\/\/omnitily\.vercel\.app\/[^<]*)<\/loc>/g) || [];
-    expect(locs).toHaveLength(1 + INDEXABLE_TOOLS.length); // 1 homepage + indexable (public functional) tools
+    expect(locs).toHaveLength(1 + INDEXABLE_TOOLS.length + LEGAL_PAGE_LIST.length); // 1 homepage + indexable (public functional) tools + legal pages
     expect(locs[0]).toContain('<loc>https://omnitily.vercel.app/</loc>');
 
     for (const tool of INDEXABLE_TOOLS) {
       expect(content).toContain(`<loc>https://omnitily.vercel.app/tools/${tool.id}</loc>`);
+    }
+
+    for (const page of LEGAL_PAGE_LIST) {
+      expect(content).toContain(`<loc>https://omnitily.vercel.app/${page.slug}</loc>`);
     }
   });
 
