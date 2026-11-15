@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import App from '../src/App';
 import { LEGAL_PAGE_LIST, PRIVACY_PAGE, TERMS_PAGE } from '../src/lib/legalContent';
 import { LegalPageView } from '../src/components/LegalPageView';
 
@@ -74,6 +75,22 @@ describe('Legal pages (Privacy Policy / Terms of Service)', () => {
     expect(text).toContain('Governing Law');
     expect(text).toContain('Bangladesh');
     expect(text).toContain('https://omnitily.vercel.app');
+  });
+
+  it('SPA routes /privacy to the Privacy Policy page with footer links present', async () => {
+    window.history.pushState({}, '', '/privacy');
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toBeInTheDocument();
+    expect(document.title).toBe('Privacy Policy - Omnitily');
+  });
+
+  it('SPA routes /terms to the Terms of Service page', async () => {
+    window.history.pushState({}, '', '/terms');
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Terms of Service' })).toBeInTheDocument();
+    expect(document.title).toBe('Terms of Service - Omnitily');
   });
 
   it('prerendered dist/privacy/index.html contains real policy content, not shell copy', () => {
