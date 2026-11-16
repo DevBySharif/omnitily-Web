@@ -10,6 +10,7 @@ import { TOOL_CONTENT_HEALTH_FUN_TEXT } from '../src/lib/toolContent-health-fun-
 import { TOOL_SEO_TITLES } from '../src/lib/toolSeoTitles.ts';
 import { CATEGORY_HUBS } from '../src/lib/categoryHubs.ts';
 import { ABOUT_PAGE, type AboutPage } from '../src/lib/aboutContent.ts';
+import { GUIDES } from '../src/lib/guides.ts';
 
 // Merged FAQ / HowTo / features content for all 101 functional tools.
 const TOOL_CONTENT: Record<string, ToolContent> = {
@@ -608,6 +609,134 @@ for (const hub of CATEGORY_HUBS) {
   hubCount++;
 }
 
+// 2c. Prerender Guide Articles (/guides/<slug>)
+// Same content as the SPA's GuideView, so crawlers see the full article
+// without JavaScript. There is no /guides index page, so the breadcrumb's
+// "Guides" crumb (position 2) points at the homepage, not a list page.
+let guideCount = 0;
+for (const guide of GUIDES) {
+  const canonical = `${DOMAIN}/guides/${guide.slug}`;
+  const title = `${guide.title} | Omnitily`;
+  const guideTools = guide.relatedToolIds
+    .map((id) => INDEXABLE_TOOLS.find((t) => t.id === id))
+    .filter((t): t is (typeof INDEXABLE_TOOLS)[number] => Boolean(t));
+
+  const articleSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: guide.title,
+    description: guide.description,
+    author: {
+      '@type': 'Organization',
+      name: 'Omnitily',
+    },
+    datePublished: '2026-11-16',
+    dateModified: guide.lastUpdated,
+  };
+
+  const howToSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: guide.title,
+    description: guide.description,
+    step: guide.steps.map((step) => ({
+      '@type': 'HowToStep',
+      text: step,
+    })),
+  };
+
+  const guideBreadcrumbSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Home',
+        item: `${DOMAIN}/`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Guides',
+        item: `${DOMAIN}/`,
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: guide.title,
+        item: canonical,
+      },
+    ],
+  };
+
+  const guideHead = buildMetaAndHead({
+    title,
+    description: guide.description,
+    canonical,
+    robots: 'index, follow',
+    keywords: `${guide.title.toLowerCase()}, how-to guide, free online tools, omnitily`,
+    jsonLdScripts: [articleSchema, howToSchema, guideBreadcrumbSchema],
+  });
+
+  const guideToolsGrid = guideTools.map((t) => `
+  <a href="/tools/${t.id}" class="tool-card border border-zinc-800 bg-[#111114] rounded-xl p-5 shadow-xl hover:border-emerald-500/30 flex flex-col justify-between gap-4">
+    <div>
+      <h3 class="font-sans font-bold text-base text-white tracking-tight mt-2">${escapeHtml(t.name)}</h3>
+      <p class="text-zinc-400 text-xs mt-1.5 leading-relaxed">${escapeHtml(t.description)}</p>
+    </div>
+    <div class="text-[10px] text-emerald-400 font-mono font-bold">Launch Workspace &rarr;</div>
+  </a>
+`).join('');
+
+  const guideBody = `
+<div class="min-h-screen bg-[#07080a] text-zinc-100 font-sans selection:bg-emerald-500/30">
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    <nav aria-label="Breadcrumb" class="mb-6 flex items-center gap-1.5 text-xs text-zinc-400">
+      <a href="/" class="font-medium hover:text-emerald-400">Home</a>
+      <span class="text-zinc-600">/</span>
+      <span class="font-medium text-zinc-400">Guides</span>
+      <span class="text-zinc-600">/</span>
+      <span class="font-semibold text-emerald-400" aria-current="page">${escapeHtml(guide.title)}</span>
+    </nav>
+    <h1 class="text-3xl font-extrabold tracking-tight text-white">${escapeHtml(guide.title)}</h1>
+    <p class="mt-2 text-xs font-mono uppercase tracking-wider text-zinc-500">Last updated: ${escapeHtml(guide.lastUpdated)}</p>
+    <p class="text-zinc-400 text-sm sm:text-base mt-4 max-w-2xl leading-relaxed">${escapeHtml(guide.description)}</p>
+    ${guide.intro.map((paragraph) => `<p class="text-zinc-400 text-sm sm:text-base mt-4 max-w-2xl leading-relaxed">${escapeHtml(paragraph)}</p>`).join('\n    ')}
+    <section aria-labelledby="guide-steps-heading" class="mt-10">
+      <h2 id="guide-steps-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">Steps</h2>
+      <ol class="list-decimal space-y-1.5 pl-5 text-zinc-400 text-sm sm:text-base leading-relaxed">
+        ${guide.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+      </ol>
+    </section>
+    <section aria-labelledby="guide-faq-heading" class="mt-10">
+      <h2 id="guide-faq-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">Frequently asked questions</h2>
+      ${guide.faqs.map((faq) => `
+      <div class="mt-4">
+        <h3 class="text-sm font-semibold text-white">${escapeHtml(faq.question)}</h3>
+        <p class="text-zinc-400 text-sm mt-1 leading-relaxed">${escapeHtml(faq.answer)}</p>
+      </div>`).join('')}
+    </section>
+    <section aria-labelledby="guide-tools-heading" class="mt-10">
+      <h2 id="guide-tools-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">Use the tool</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        ${guideToolsGrid}
+      </div>
+    </section>
+    <div class="mt-10 border-t border-zinc-800/60 pt-6">
+      <a href="/" class="text-xs font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300">&larr; Back to Omnitily</a>
+    </div>
+  </main>
+</div>
+`;
+
+  const guideHtml = injectHeadAndBody(template, guideHead, guideBody);
+  const guideDir = join(distDir, 'guides', guide.slug);
+  await mkdir(guideDir, { recursive: true });
+  await writeFile(join(guideDir, 'index.html'), guideHtml, 'utf8');
+  guideCount++;
+}
+
 // 3. Generate noindex raw HTML for known hidden routes.
 // These files are intentionally excluded from sitemap/indexability while
 // preventing crawlers from seeing homepage metadata for unavailable tools.
@@ -677,4 +806,4 @@ const notFoundBody = `
 `;
 await writeFile(join(distDir, '404.html'), injectHeadAndBody(template, notFoundHead, notFoundBody), 'utf8');
 
-console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${aboutCount} about page, ${hubCount} category hub pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);
+console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${aboutCount} about page, ${hubCount} category hub pages, ${guideCount} guide pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);

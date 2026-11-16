@@ -41,9 +41,11 @@ import { INDEXABLE_TOOLS, PUBLIC_TOOLS, PUBLIC_TOOL_IDS, TOOL_BY_ID, TOOLS_LIST,
 import { SeoManager } from './components/SeoManager';
 import { LegalPageView } from './components/LegalPageView';
 import { CategoryHubView } from './components/CategoryHubView';
+import { GuideView } from './components/GuideView';
 import { LEGAL_PAGES, type LegalPage, type LegalPageSlug } from './lib/legalContent';
 import { ABOUT_PAGE } from './lib/aboutContent';
 import { CATEGORY_HUBS } from './lib/categoryHubs';
+import { GUIDES } from './lib/guides';
 
 function AppContent() {
   const toast = useToast();
@@ -51,6 +53,7 @@ function AppContent() {
   const [routeNotFound, setRouteNotFound] = useState(false);
   const [staticPage, setStaticPage] = useState<LegalPageSlug | 'about' | null>(null);
   const [hubSlug, setHubSlug] = useState<string | null>(null);
+  const [guideSlug, setGuideSlug] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -74,6 +77,7 @@ function AppContent() {
         setRouteNotFound(false);
         setActiveTool(null);
         setHubSlug(null);
+        setGuideSlug(null);
         setStaticPage(staticMatch[1] as LegalPageSlug | 'about');
         return;
       }
@@ -83,7 +87,25 @@ function AppContent() {
         setRouteNotFound(false);
         setActiveTool(null);
         setStaticPage(null);
+        setGuideSlug(null);
         setHubSlug(hubMatch[1]);
+        return;
+      }
+      // Guide article routes (/guides/<slug>) resolve against GUIDES; an
+      // unknown slug is a 404, not a tool lookup.
+      const guideMatch = path.match(/^\/guides\/([^/]+)\/?$/);
+      if (guideMatch) {
+        const slug = guideMatch[1];
+        setActiveTool(null);
+        setStaticPage(null);
+        setHubSlug(null);
+        if (GUIDES.some((guide) => guide.slug === slug)) {
+          setRouteNotFound(false);
+          setGuideSlug(slug);
+        } else {
+          setRouteNotFound(true);
+          setGuideSlug(null);
+        }
         return;
       }
       const match = path.match(/^\/tools\/([^/]+)/);
@@ -93,17 +115,20 @@ function AppContent() {
           setRouteNotFound(false);
           setStaticPage(null);
           setHubSlug(null);
+          setGuideSlug(null);
           setActiveTool(toolId);
         } else {
           setRouteNotFound(true);
           setStaticPage(null);
           setHubSlug(null);
+          setGuideSlug(null);
           setActiveTool(null);
         }
       } else {
         setRouteNotFound(path !== '/');
         setStaticPage(null);
         setHubSlug(null);
+        setGuideSlug(null);
         setActiveTool(null);
       }
     };
@@ -119,12 +144,14 @@ function AppContent() {
       setRouteNotFound(false);
       setStaticPage(null);
       setHubSlug(null);
+      setGuideSlug(null);
       setActiveTool(toolId);
     } else {
       window.history.pushState(null, '', '/');
       setRouteNotFound(false);
       setStaticPage(null);
       setHubSlug(null);
+      setGuideSlug(null);
       setActiveTool(null);
     }
   };
@@ -134,6 +161,7 @@ function AppContent() {
     setRouteNotFound(false);
     setActiveTool(null);
     setHubSlug(null);
+    setGuideSlug(null);
     setStaticPage(page);
     window.scrollTo(0, 0);
   };
@@ -143,7 +171,18 @@ function AppContent() {
     setRouteNotFound(false);
     setActiveTool(null);
     setStaticPage(null);
+    setGuideSlug(null);
     setHubSlug(slug);
+    window.scrollTo(0, 0);
+  };
+
+  const navigateToGuide = (slug: string) => {
+    window.history.pushState(null, '', `/guides/${slug}`);
+    setRouteNotFound(false);
+    setActiveTool(null);
+    setStaticPage(null);
+    setHubSlug(null);
+    setGuideSlug(slug);
     window.scrollTo(0, 0);
   };
 
@@ -444,6 +483,19 @@ function AppContent() {
       }))
     : [];
 
+  // Active guide article (if the current route is /guides/<slug>) and its
+  // related tools, resolved to names/descriptions from the tool registry.
+  const activeGuide = guideSlug ? GUIDES.find((guide) => guide.slug === guideSlug) : undefined;
+  const activeGuideTools = activeGuide
+    ? activeGuide.relatedToolIds
+        .filter((id): id is ToolId => isToolId(id))
+        .map((id) => ({
+          id: TOOL_BY_ID[id].id,
+          name: TOOL_BY_ID[id].name,
+          description: TOOL_BY_ID[id].description,
+        }))
+    : [];
+
   const visiblePinnedToolIds = pinnedToolIds.filter((id) => id && PUBLIC_TOOL_IDS.has(id as ToolId));
 
   return (
@@ -463,6 +515,7 @@ function AppContent() {
         routeNotFound={routeNotFound}
         staticPage={staticPage ?? undefined}
         hubSlug={hubSlug}
+        guideSlug={guideSlug}
       />
       
       {/* Universal Top Nav */}
@@ -527,6 +580,9 @@ function AppContent() {
         ) : activeHub ? (
           /* Category hub page (/tools/<slug>) */
           <CategoryHubView hub={activeHub} tools={activeHubTools} />
+        ) : activeGuide ? (
+          /* Guide article (/guides/<slug>) */
+          <GuideView guide={activeGuide} tools={activeGuideTools} />
         ) : !activeTool ? (
           /* Dashboard View */
           <div

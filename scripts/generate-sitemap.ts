@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { INDEXABLE_TOOLS } from '../src/toolsData.ts';
 import { LEGAL_PAGE_LIST } from '../src/lib/legalContent.ts';
 import { CATEGORY_HUBS } from '../src/lib/categoryHubs.ts';
+import { GUIDES } from '../src/lib/guides.ts';
 
 const baseUrl = 'https://omnitily.vercel.app';
 // Build date (YYYY-MM-DD) stamped as <lastmod> on every entry.
@@ -16,6 +17,11 @@ const urls = [
   })),
   ...CATEGORY_HUBS.map((hub) => ({
     loc: `${baseUrl}/tools/${hub.slug}`,
+    changefreq: 'monthly',
+    priority: '0.7',
+  })),
+  ...GUIDES.map((guide) => ({
+    loc: `${baseUrl}/guides/${guide.slug}`,
     changefreq: 'monthly',
     priority: '0.7',
   })),
@@ -37,4 +43,4 @@ const body = urls.map((url) => [
 ].join('\n')).join('\n');
 
 await writeFile(new URL('../public/sitemap.xml', import.meta.url), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`, 'utf8');
-console.log(`Generated sitemap with ${urls.length} URLs (1 home + ${LEGAL_PAGE_LIST.length} legal + ${CATEGORY_HUBS.length} hubs + 1 about + ${INDEXABLE_TOOLS.length} indexable tools).`);
+console.log(`Generated sitemap with ${urls.length} URLs (1 home + ${LEGAL_PAGE_LIST.length} legal + ${CATEGORY_HUBS.length} hubs + ${GUIDES.length} guides + 1 about + ${INDEXABLE_TOOLS.length} indexable tools).`);

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { HIDDEN_TOOLS, INDEXABLE_TOOLS, TOOL_REGISTRY } from '../src/toolsData';
 import { LEGAL_PAGE_LIST } from '../src/lib/legalContent';
+import { GUIDES } from '../src/lib/guides';
 
 describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
   it('robots.txt points to canonical sitemap URL on omnitily.vercel.app', () => {
@@ -13,13 +14,13 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
     expect(content).not.toContain('omnitily.com');
   });
 
-  it('sitemap.xml contains exactly 1 home + legal + hub + about + indexable-tool canonical URLs on omnitily.vercel.app', () => {
+  it('sitemap.xml contains exactly 1 home + legal + hub + guide + about + indexable-tool canonical URLs on omnitily.vercel.app', () => {
     expect(existsSync('public/sitemap.xml')).toBe(true);
     const content = readFileSync('public/sitemap.xml', 'utf8');
     expect(content).not.toContain('omnitily.com');
 
     const locs = content.match(/<loc>(https:\/\/omnitily\.vercel\.app\/[^<]*)<\/loc>/g) || [];
-    expect(locs).toHaveLength(1 + INDEXABLE_TOOLS.length + LEGAL_PAGE_LIST.length + 9 + 1); // 1 homepage + indexable (public functional) tools + legal pages + 9 category hubs + about
+    expect(locs).toHaveLength(1 + INDEXABLE_TOOLS.length + LEGAL_PAGE_LIST.length + 9 + GUIDES.length + 1); // 1 homepage + indexable (public functional) tools + legal pages + 9 category hubs + guides + about
     expect(locs[0]).toContain('<loc>https://omnitily.vercel.app/</loc>');
 
     // Every entry carries a <lastmod> build date.
@@ -38,6 +39,10 @@ describe('P1-A2 Production SEO Rendering & Static Prerendering', () => {
       expect(content).toContain(`<loc>https://omnitily.vercel.app/tools/${slug}</loc>`);
     }
     expect(content).toContain('<loc>https://omnitily.vercel.app/about</loc>');
+
+    for (const guide of GUIDES) {
+      expect(content).toContain(`<loc>https://omnitily.vercel.app/guides/${guide.slug}</loc>`);
+    }
   });
 
   it('index.html template contains lang="en", theme-color, canonical, Open Graph, and Twitter metadata', () => {

@@ -4,6 +4,7 @@ import { LEGAL_PAGES, type LegalPageSlug } from '../lib/legalContent';
 import { ABOUT_PAGE } from '../lib/aboutContent';
 import { TOOL_SEO_TITLES } from '../lib/toolSeoTitles';
 import { CATEGORY_HUBS } from '../lib/categoryHubs';
+import { GUIDES } from '../lib/guides';
 
 interface SeoManagerProps {
   toolId: string | null;
@@ -15,6 +16,7 @@ interface SeoManagerProps {
   routeNotFound?: boolean;
   staticPage?: LegalPageSlug | 'about';
   hubSlug?: string | null;
+  guideSlug?: string | null;
 }
 
 const DOMAIN = 'https://omnitily.vercel.app';
@@ -57,6 +59,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
   routeNotFound = false,
   staticPage,
   hubSlug,
+  guideSlug,
 }) => {
   useEffect(() => {
     // Clean up previous JSON-LD script tags
@@ -319,6 +322,101 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
         breadcrumbScript.text = JSON.stringify(breadcrumbSchema);
         document.head.appendChild(breadcrumbScript);
       }
+    } else if (guideSlug) {
+      // Guide article route (/guides/<slug>): SPA navigation lands here, while
+      // the prerendered guide HTML carries the same meta for crawlers.
+      const guide = GUIDES.find((g) => g.slug === guideSlug);
+      if (guide) {
+        const canonical = `${DOMAIN}/guides/${guide.slug}`;
+        const title = `${guide.title} | Omnitily`;
+        const desc = guide.description;
+
+        document.title = title;
+        setCanonicalUrl(canonical);
+        setMetaTag('name', 'description', desc);
+        setMetaTag('name', 'robots', 'index, follow');
+        setMetaTag('name', 'keywords', `${guide.title.toLowerCase()}, how-to guide, free online tools, omnitily`);
+
+        setMetaTag('property', 'og:site_name', 'Omnitily');
+        setMetaTag('property', 'og:type', 'article');
+        setMetaTag('property', 'og:title', title);
+        setMetaTag('property', 'og:description', desc);
+        setMetaTag('property', 'og:url', canonical);
+        setOgImageTags();
+
+        setMetaTag('name', 'twitter:card', 'summary_large_image');
+        setMetaTag('name', 'twitter:title', title);
+        setMetaTag('name', 'twitter:description', desc);
+
+        const articleSchema = {
+          '@context': 'https://schema.org',
+          '@type': 'Article',
+          headline: guide.title,
+          description: desc,
+          author: {
+            '@type': 'Organization',
+            name: 'Omnitily',
+          },
+          datePublished: '2026-11-16',
+          dateModified: guide.lastUpdated,
+        };
+
+        const howToSchema = {
+          '@context': 'https://schema.org',
+          '@type': 'HowTo',
+          name: guide.title,
+          description: desc,
+          step: guide.steps.map((step) => ({
+            '@type': 'HowToStep',
+            text: step,
+          })),
+        };
+
+        const breadcrumbSchema = {
+          '@context': 'https://schema.org',
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            {
+              '@type': 'ListItem',
+              position: 1,
+              name: 'Home',
+              item: `${DOMAIN}/`,
+            },
+            {
+              // No /guides index page exists, so "Guides" points at the
+              // homepage; see scripts/prerender.ts (guides loop).
+              '@type': 'ListItem',
+              position: 2,
+              name: 'Guides',
+              item: `${DOMAIN}/`,
+            },
+            {
+              '@type': 'ListItem',
+              position: 3,
+              name: guide.title,
+              item: canonical,
+            },
+          ],
+        };
+
+        const articleScript = document.createElement('script');
+        articleScript.setAttribute('data-seo', 'omnitily-jsonld');
+        articleScript.type = 'application/ld+json';
+        articleScript.text = JSON.stringify(articleSchema);
+        document.head.appendChild(articleScript);
+
+        const howToScript = document.createElement('script');
+        howToScript.setAttribute('data-seo', 'omnitily-jsonld');
+        howToScript.type = 'application/ld+json';
+        howToScript.text = JSON.stringify(howToSchema);
+        document.head.appendChild(howToScript);
+
+        const breadcrumbScript = document.createElement('script');
+        breadcrumbScript.setAttribute('data-seo', 'omnitily-jsonld');
+        breadcrumbScript.type = 'application/ld+json';
+        breadcrumbScript.text = JSON.stringify(breadcrumbSchema);
+        document.head.appendChild(breadcrumbScript);
+      }
     } else {
       const title = 'Omnitily — Free Online Tools: Video, Image, PDF, Text & Developer Utilities';
       const desc = 'Free online tools for video, image, PDF, text and developer tasks. Download, convert, compress and edit files in your browser — no signup, no watermark.';
@@ -392,7 +490,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
       webAppScript.text = JSON.stringify(webAppSchema);
       document.head.appendChild(webAppScript);
     }
-  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound, staticPage, hubSlug]);
+  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound, staticPage, hubSlug, guideSlug]);
 
   return null;
 };
