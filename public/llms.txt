@@ -1,0 +1,179 @@
+# Omnitily
+
+> Omnitily is a free collection of 101 online tools for everyday video, image, PDF, text,
+> audio, developer, maths, health and fun tasks. No accounts, no subscriptions, no software
+> to install, and no watermark on anything you produce. Most tools run entirely in your
+> browser, so your files never leave your device. A few tools need a server or a third-party
+> service to work; those are noted on the tool itself.
+
+## Video Tools
+
+- [Video Splitting & Cutting](https://omnitily.vercel.app/tools/video-splitter): Trim, segment and extract ranges from MP4 and WebM files client-side.
+- [Social Video Downloader](https://omnitily.vercel.app/tools/social-downloader): Download HD videos and extracts from YouTube, TikTok, Instagram, Facebook, and Twitter. (public videos only; resolved via self-hosted Cobalt)
+- [YouTube Downloader](https://omnitily.vercel.app/tools/youtube-downloader): Download public YouTube videos, shorts, and music via a self-hosted Cobalt API backend. (public videos only; resolved via self-hosted Cobalt; YouTube may rate-limit requests)
+- [Instagram Downloader](https://omnitily.vercel.app/tools/instagram-downloader): Download public Instagram reels, posts, and stories via a self-hosted Cobalt API backend. (public reels/posts/stories only; resolved via self-hosted Cobalt)
+- [TikTok Downloader](https://omnitily.vercel.app/tools/tiktok-downloader): Download public TikTok videos via a self-hosted Cobalt API backend. (public videos only; resolved via self-hosted Cobalt)
+- [Facebook Downloader](https://omnitily.vercel.app/tools/facebook-downloader): Download public Facebook videos and reels via a self-hosted Cobalt API backend. (public videos/reels only; resolved via self-hosted Cobalt)
+- [GIF Converter & Maker](https://omnitily.vercel.app/tools/gif-maker): Convert MP4 videos or multiple static images into lightweight animated GIFs.
+- [Video to Audio Extractor](https://omnitily.vercel.app/tools/video-to-audio): Extract the audio track from MP4/WebM video files as a WAV file entirely in your browser.
+- [Video Frame Grabber](https://omnitily.vercel.app/tools/frame-extractor): Scrub and extract pixel-perfect JPEG image frames from raw video files.
+- [Video Speed Controller](https://omnitily.vercel.app/tools/video-speed): Speed up or slow down video playbacks (0.25x - 4x) and export the adjusted clip.
+- [Video Audio Remover](https://omnitily.vercel.app/tools/video-muter): Instantly strip audio tracks from video clips with one click before sharing.
+- [Video Compressor](https://omnitily.vercel.app/tools/video-compressor): Reduce MP4/WebM file sizes using localized client-side bitrate configurations.
+- [Video Looper & Repeater](https://omnitily.vercel.app/tools/video-looper): Chain a small video clip back-to-back to create infinite decorative loop segments.
+- [Video Rotator](https://omnitily.vercel.app/tools/video-rotator): Rotate skewed video feeds 90, 180, or 270 degrees client-side.
+- [Video Aspect Ratio Resizer](https://omnitily.vercel.app/tools/video-resizer): Resize video dimensions to fit portrait, landscape, or square feed aspect ratios.
+- [Video Watermark Adder](https://omnitily.vercel.app/tools/video-watermark): Overlay secure customized text or floating brand logo icons on video clips.
+- [SRT Subtitle Creator](https://omnitily.vercel.app/tools/subtitles-editor): Draft, validate, and export standard SRT/VTT subtitle files, or build timed cues from plain lines.
+
+## Image Tools
+
+- [Image Format Converter](https://omnitily.vercel.app/tools/image-converter): Convert, compress and resize JPEG, PNG and WebP files in batches.
+- [Color Palette Extractor](https://omnitily.vercel.app/tools/color-extractor): Analyze pixels in any uploaded image to harvest distinct HEX color clusters.
+- [Smart Image Compressor](https://omnitily.vercel.app/tools/image-compressor): Reduce PNG/JPEG file size by up to 80% without losing visual fidelity.
+- [Client-Side Image Cropper](https://omnitily.vercel.app/tools/image-cropper): Crop, flip, rotate, and scale photos with highly responsive visual drag handles.
+- [Interactive Pixel Art Maker](https://omnitily.vercel.app/tools/pixel-art): Design custom 8-bit visual artwork using a retro canvas board grid.
+- [EXIF Metadata Inspector](https://omnitily.vercel.app/tools/exif-viewer): Read underlying shutter, camera sensor details, and location geotags from photos.
+- [Favicon & App Icon Generator](https://omnitily.vercel.app/tools/favicon-generator): Generate a genuine 32x32 .ico favicon file from any image.
+- [SVG Optimizer & Beautifier](https://omnitily.vercel.app/tools/svg-optimizer): Clean up nested tags, optimize coordinates, and minify vector files.
+- [Image Dimension Scaler](https://omnitily.vercel.app/tools/image-resizer): Scale width and height coordinates while preserving proportional aspect lock ratios.
+- [Aesthetic CSS Gradient Designer](https://omnitily.vercel.app/tools/gradient-generator): Create multi-stop radial and linear gradients and export ready-made CSS variables.
+
+## Document & PDF Tools
+
+- [PDF Compiler (Images to PDF)](https://omnitily.vercel.app/tools/pdf-compiler): Sort and compile screenshots, receipts or photos into clean, multi-page PDFs.
+- [PDF to Text Extractor](https://omnitily.vercel.app/tools/pdf-to-txt): Scan and extract raw strings or paragraphs out of structural PDF files offline.
+- [Plain Text to PDF Maker](https://omnitily.vercel.app/tools/txt-to-pdf): Format, style, and print raw TXT documents into clean, structured PDF reports.
+- [PDF Page Splitter](https://omnitily.vercel.app/tools/pdf-splitter): Extract specific pages or segment a multi-page PDF into separate file chunks.
+- [EPUB to PDF Converter](https://omnitily.vercel.app/tools/epub-to-pdf): Convert standard reflowable ePUB files into highly readable fixed PDF pages.
+- [Excel to CSV Converter](https://omnitily.vercel.app/tools/excel-to-csv): Parse modern .xlsx files client-side and export them as standard CSV (binary .xls is not supported). (modern .xlsx only, binary .xls not supported)
+- [PDF File Merger](https://omnitily.vercel.app/tools/pdf-merger): Stitch and combine multiple complete PDF volumes together in sequential order.
+- [PDF Page Rotator](https://omnitily.vercel.app/tools/pdf-rotator): Correct skewed portrait or landscape orientations of PDF file pages.
+
+## Audio Tools
+
+- [High-Fidelity Voice Recorder](https://omnitily.vercel.app/tools/sound-recorder): Record high-quality vocal memos and sound feeds using customizable mic levels.
+- [Audio Clip Merger](https://omnitily.vercel.app/tools/audio-merger): Seamlessly glue and combine multiple audio feeds (WAV/MP3) into one solid track.
+- [Real-Time Voice Modulator](https://omnitily.vercel.app/tools/voice-changer): Pitch-shift vocal frequencies or apply robot, chipmunk, or cathedral reverb sounds.
+- [Vocal Reducer](https://omnitily.vercel.app/tools/vocal-remover): Reduce centered vocals in a stereo mix with center-channel extraction — an approximation, not true source separation. (centre-channel reduction, an approximation not true separation)
+- [Audio Silence Cutter](https://omnitily.vercel.app/tools/silence-remover): Analyze acoustic frequencies to strip long segments of dead silence automatically.
+- [Audio Speed Changer](https://omnitily.vercel.app/tools/audio-speed): Change sound speeds (0.5x - 2.0x) without altering base acoustic pitches.
+- [Tap Tempo & BPM Counter](https://omnitily.vercel.app/tools/bpm-finder): Tap along to any music track beat to identify precise Beats Per Minute counts.
+- [Rhythm & Tempo Metronome](https://omnitily.vercel.app/tools/metronome): Keep perfect time with a customizable tick clock metronome for instrument practice.
+- [Audio Format Converter](https://omnitily.vercel.app/tools/audio-converter): Convert raw files client-side between standard MP3, WAV, OGG, and FLAC formats. (MP3/FLAC export not possible in-browser)
+
+## Text & Writing Tools
+
+- [Text Case Converter](https://omnitily.vercel.app/tools/case-converter): Convert strings to UPPERCASE, lowercase, Title Case, camelCase, or snake_case.
+- [Word & Character Counter](https://omnitily.vercel.app/tools/word-counter): Count paragraphs, words, letters, reading speeds, and density logs in real time.
+- [Lorem Ipsum Generator](https://omnitily.vercel.app/tools/lorem-ipsum): Generate standard dummy placeholder strings, paragraphs, or lists for layout drafts.
+- [Text Diff Checker](https://omnitily.vercel.app/tools/text-diff): Compare two text logs side-by-side to pinpoint line and character variances.
+- [Interactive Markdown Editor](https://omnitily.vercel.app/tools/markdown-editor): Write, preview, and render full GitHub-flavored Markdown text to styled HTML pages.
+- [Interactive RegEx Tester](https://omnitily.vercel.app/tools/regex-tester): Test, parse, and validate complex regular expression strings with matched highlighting.
+- [URL Slug & SEO Link Maker](https://omnitily.vercel.app/tools/slug-generator): Cleanse and convert raw article titles into search engine-friendly URL strings.
+- [Alphabetical Line Sorter](https://omnitily.vercel.app/tools/text-sorter): Sort lists alphabetically, numerically, in reverse, or by string length with filters.
+- [Find & Replace Text Engine](https://omnitily.vercel.app/tools/find-replace): Find strings or matches and replace them globally with selective ignore-case rules.
+- [Morse Code Translator](https://omnitily.vercel.app/tools/morse-translator): Translate standard text to Morse code and play back the audio sound.
+- [Base64 Encoder & Decoder](https://omnitily.vercel.app/tools/base64-coder): Convert characters to Base64 formats or decode secured parameters.
+- [URL Encoder & Decoder](https://omnitily.vercel.app/tools/url-coder): Encode special characters into clean web-safe URL address parameters.
+- [HTML Entity Encoder](https://omnitily.vercel.app/tools/html-entities): Safely convert signs like <, >, and & into standard safe HTML browser codes.
+- [Text Reverser & Mirror](https://omnitily.vercel.app/tools/text-reverser): Instantly flip characters, complete words, or entire lists backward.
+- [Duplicate Line Remover](https://omnitily.vercel.app/tools/line-remover): Clean lists of strings by removing empty spaces and matching duplicate lines.
+- [Creative Prompt Generator](https://omnitily.vercel.app/tools/sentence-generator): Generate random sentence prompts and vocabulary combinations for writing exercises.
+
+## Developer Tools
+
+- [QR Code Generator](https://omnitily.vercel.app/tools/qr-generator): Create customized scannable QR codes with custom background and colors. (QR image rendered by external api.qrserver.com)
+- [JSON Beautifier & Validator](https://omnitily.vercel.app/tools/json-formatter): Beautify nested key structures, fix syntax, and validate JSON objects instantly.
+- [Cryptographic Hash Solver](https://omnitily.vercel.app/tools/hash-generator): Generate standard SHA-1, SHA-256, SHA-384, and SHA-512 values from text strings. (SHA-1/256/384/512 only, no MD5)
+- [UUID Batch Generator](https://omnitily.vercel.app/tools/uuid-generator): Generate cryptographically secure RFC4122 Version 4 UUID strings in batches.
+- [YAML to JSON Converter](https://omnitily.vercel.app/tools/yaml-to-json): Convert legible YAML configurations into clean structured JSON formats.
+- [XML Beautifier & Pretty-Printer](https://omnitily.vercel.app/tools/xml-beautifier): Pretty print, re-align, and format dense nested XML documents.
+- [JSON Web Token (JWT) Parser](https://omnitily.vercel.app/tools/jwt-debugger): Decode, inspect, and audit headers, payloads, and signatures of JWT credentials.
+- [SQL Query Formatter](https://omnitily.vercel.app/tools/sql-formatter): Pretty print dense database queries with clean indent structures.
+- [Cron Expression Checker](https://omnitily.vercel.app/tools/cron-parser): Check cron schedule expressions to discover standard recurring timetables.
+- [HEX Color Blender & Mixer](https://omnitily.vercel.app/tools/color-blender): Blend Hex colors together in proportional steps to generate custom palettes.
+- [WCAG Accessibility Checker](https://omnitily.vercel.app/tools/contrast-checker): Verify background and foreground colors to make sure layouts meet accessibility standards.
+- [Base System Number Converter](https://omnitily.vercel.app/tools/base-converter): Convert values between standard Hex, Octal, Decimal, and Binary bases.
+- [User Agent Inspector](https://omnitily.vercel.app/tools/user-agent): Deconstruct browser headers, operating system, and hardware rendering details.
+- [Mock API Response Builder](https://omnitily.vercel.app/tools/mock-api): Draft and test customized mock JSON responses for rapid front-end scaffolding.
+
+## Math & Finance Tools
+
+- [Scientific Algebra Calculator](https://omnitily.vercel.app/tools/scientific-calc): Standard & advanced equations with visual logarithm, sine, cosine, and memory blocks.
+- [Universal Unit Converter](https://omnitily.vercel.app/tools/unit-converter): Convert lengths, temperatures, weights, speeds, areas, and fluid measures.
+- [Universal Currency Rates](https://omnitily.vercel.app/tools/currency-converter): Convert assets between USD, EUR, GBP, JPY, CAD, AUD, and other major world feeds. (live rates from the Frankfurter API)
+- [Percentage Calculator](https://omnitily.vercel.app/tools/percent-calc): Find what X% of any number equals with an instant, accurate percentage calculator.
+- [Friendly Bill & Tip Splitter](https://omnitily.vercel.app/tools/tip-calc): Calculate fair split payments and custom percentages for dinners and group tabs.
+- [Matrix Algebra Solver](https://omnitily.vercel.app/tools/matrix-calc): Calculate determinants, matrix additions, transposes, and products instantly.
+- [Binary Mathematics Solver](https://omnitily.vercel.app/tools/binary-math): Add, subtract, multiply, or divide binary numbers with clear workflow steps.
+- [Fibonacci Sequence Solver](https://omnitily.vercel.app/tools/fibonacci-gen): Analyze sequence counts, golden ratios, and positional values instantly.
+
+## Health & Lifestyle Tools
+
+- [BMI Healthy Weight Solver](https://omnitily.vercel.app/tools/bmi-calc): Calculate Body Mass Index values with customized visual fitness feedback logs.
+- [BMR Energy Estimator](https://omnitily.vercel.app/tools/bmr-calc): Check your Basal Metabolic Rate and estimate calorie thresholds based on active lifestyle scales.
+- [Calorie Tracker & Food Diary](https://omnitily.vercel.app/tools/calorie-counter): Add meals, log standard values, and trace daily energy balances dynamically.
+- [Hourly Daily Task Planner](https://omnitily.vercel.app/tools/planner): Draft schedule blocks, set task alerts, and track daily plans visually.
+- [Symmetrical Box Breathing](https://omnitily.vercel.app/tools/breath-guide): A visual breathing sphere with timers to regulate stress and guide lung exercises.
+- [Step & Cardio Estimator](https://omnitily.vercel.app/tools/step-sim): Convert daily walking step counts into estimated miles, kilometers, and active calories.
+- [Daily Streak Habit Tracker](https://omnitily.vercel.app/tools/habit-tracker): Log positive actions, unlock milestones, and keep a visual calendar of streaks.
+- [Daily Water Intake Logger](https://omnitily.vercel.app/tools/water-tracker): Log and monitor daily water targets with responsive fluid level metrics.
+- [Optimal Sleep Stage Planner](https://omnitily.vercel.app/tools/sleep-calculator): Plan exact sleep and wakeup cycles matching REM intervals to wake up refreshed.
+
+## Fun & Games Tools
+
+- [Secure Password Generator](https://omnitily.vercel.app/tools/password-gen): Generate customizable, secure strings with numbers, symbols, and letter filters.
+- [Polyhedral Dice Roller](https://omnitily.vercel.app/tools/dice-roller): Roll d4, d6, d8, d10, d12, or d20 game dice instantly for tabletop entertainment.
+- [Rock Paper Scissors vs. Computer](https://omnitily.vercel.app/tools/rock-paper-scissors): Play classic Rock, Paper, Scissors against a random computer opponent for quick, fun rounds.
+- [Tic-Tac-Toe Board](https://omnitily.vercel.app/tools/tic-tac-toe): Play standard 3x3 tic-tac-toe grids with a responsive virtual opponent.
+- [Random Selector Wheel](https://omnitily.vercel.app/tools/name-picker): Enter names or choices to spin a selection wheel and pick an absolute winner.
+- [Compatibility Love Solver](https://omnitily.vercel.app/tools/love-calculator): A fun name comparison script analyzing matching sound waves for fun compatibility percentages.
+- [Offline General Trivia](https://omnitily.vercel.app/tools/trivia-quiz): Challenge your knowledge with built-in multichoice general knowledge trivia logs.
+- [Reaction Time Tester](https://omnitily.vercel.app/tools/reaction-test): Measure your visual reflexes down to exact milliseconds during random screen color flashes.
+- [Word Anagram Solver](https://omnitily.vercel.app/tools/anagram-solver): Unscramble mixed characters and find valid high-scoring Scrabble words.
+- [Mini Sudoku Board](https://omnitily.vercel.app/tools/sudoku-solver): Draft, solve, or play a 9x9 Sudoku grid with automatic constraint-checking guidelines.
+
+## Key Pages
+
+- [Omnitily home](https://omnitily.vercel.app/): browse all 101 tools by category.
+- [About Omnitily](https://omnitily.vercel.app/about): what the site is, how files are handled, and how to contact the team.
+- [Privacy Policy](https://omnitily.vercel.app/privacy): what data each tool sends, and where it goes.
+- [Terms of Service](https://omnitily.vercel.app/terms): the terms for using the site and its tools.
+- [Sitemap](https://omnitily.vercel.app/sitemap.xml): every indexable page on the site.
+
+## Tool Categories
+
+- [Video Tools](https://omnitily.vercel.app/tools/video): all 17 functional video tools.
+- [Image Tools](https://omnitily.vercel.app/tools/image): all 10 functional image tools.
+- [Document & PDF Tools](https://omnitily.vercel.app/tools/document): all 8 functional document tools.
+- [Audio Tools](https://omnitily.vercel.app/tools/audio): all 9 functional audio tools.
+- [Text & Writing Tools](https://omnitily.vercel.app/tools/text-writing): all 16 functional text & writing tools.
+- [Developer Tools](https://omnitily.vercel.app/tools/developer-tools): all 14 functional developer tools tools.
+- [Math & Finance Tools](https://omnitily.vercel.app/tools/math-finance): all 8 functional math & finance tools.
+- [Health & Lifestyle Tools](https://omnitily.vercel.app/tools/health-lifestyle): all 9 functional health & lifestyle tools.
+- [Fun & Games Tools](https://omnitily.vercel.app/tools/fun-games): all 10 functional fun & games tools.
+
+## Guides
+
+- [How to Download TikTok Videos Without Watermark](https://omnitily.vercel.app/guides/how-to-download-tiktok-videos-without-watermark): Download any public TikTok video without a watermark, free with no signup.
+- [How to Download Instagram Reels for Free](https://omnitily.vercel.app/guides/how-to-download-instagram-reels): Save public Instagram reels, posts, and stories as MP4, free with no signup.
+- [How to Convert Video to MP3 Online](https://omnitily.vercel.app/guides/how-to-convert-video-to-mp3): Pull the sound out of a video clip and keep it as an audio file. Note: the tool exports WAV, not MP3.
+- [How to Compress a Video Online for Free](https://omnitily.vercel.app/guides/how-to-compress-a-video-online): Shrink a large MP4 or WebM video in your browser, free, no signup.
+- [How to Split a PDF Online for Free](https://omnitily.vercel.app/guides/how-to-split-a-pdf-online): Break a multi-page PDF into separate files by page range or into equal chunks.
+- [How to Merge PDF Files Online for Free](https://omnitily.vercel.app/guides/how-to-merge-pdf-files-online): Combine several PDFs into one document, in the order you choose.
+- [How to Convert PNG to JPG Online Free](https://omnitily.vercel.app/guides/how-to-convert-png-to-jpg): Turn PNG images into JPG files for smaller sizes and wider compatibility.
+- [How to Compress Images Online for Free](https://omnitily.vercel.app/guides/how-to-compress-images-online): Shrink PNG and JPEG photos so they load faster and take up less storage.
+
+## Notes
+
+- Free to use: every tool is free, with no account, sign-up or subscription required.
+- Privacy by default: most tools process files entirely in your browser; files sent to a server
+  or third-party service are not stored after the operation completes.
+- Social media downloaders (YouTube, TikTok, Instagram, Facebook) resolve links through
+  Omnitily's self-hosted Cobalt media resolver; only public videos can be downloaded, and
+  YouTube may rate-limit the resolver, so downloads can fail temporarily.
+- The QR Code Generator renders its image through the external service api.qrserver.com.
+- The Currency Converter fetches live rates from the Frankfurter API (api.frankfurter.app).
+- This file lists only the 101 functional tools. Beta, coming-soon and disabled tools are
+  not part of the public catalogue and are not listed here.
