@@ -120,16 +120,17 @@ describe('SEO P1 integration — prerendered output', () => {
     expect(html).toContain('/tools/video');
   });
 
-  it('the sitemap lists 122 URLs, each with a lastmod, including hubs, guides, and /about', () => {
+  it('the sitemap lists 123 URLs, each with a lastmod, including hubs, guides, the /guides index, and /about', () => {
     expect(existsSync('public/sitemap.xml')).toBe(true);
     const content = readFileSync('public/sitemap.xml', 'utf8');
     const urls = content.match(/<url>/g) || [];
-    expect(urls).toHaveLength(122);
+    expect(urls).toHaveLength(123);
     const lastmods = content.match(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g) || [];
-    expect(lastmods).toHaveLength(122);
+    expect(lastmods).toHaveLength(123);
     for (const hub of CATEGORY_HUBS) {
       expect(content).toContain(`<loc>https://omnitily.vercel.app/tools/${hub.slug}</loc>`);
     }
+    expect(content).toContain('<loc>https://omnitily.vercel.app/guides</loc>');
     expect(content).toContain('<loc>https://omnitily.vercel.app/about</loc>');
   });
 });

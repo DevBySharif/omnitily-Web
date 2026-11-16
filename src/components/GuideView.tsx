@@ -7,10 +7,6 @@ import type { HubTool } from './CategoryHubView';
  * `src/lib/guides.ts`. Follows the `CategoryHubView` pattern: breadcrumb,
  * H1, intro copy, numbered steps, FAQ, then cards linking to the related
  * tools using the same card styling as the hub pages.
- *
- * There is no `/guides` index page, so the breadcrumb's "Guides" crumb is
- * plain text (not a link) and the JSON-LD breadcrumb points it at the
- * homepage instead.
  */
 export const GuideView: React.FC<{ guide: Guide; tools: HubTool[] }> = ({ guide, tools }) => {
   return (
@@ -20,7 +16,9 @@ export const GuideView: React.FC<{ guide: Guide; tools: HubTool[] }> = ({ guide,
           Home
         </a>
         <span className="text-zinc-600">/</span>
-        <span className="font-medium text-zinc-400">Guides</span>
+        <a href="/guides" className="font-medium hover:text-emerald-400">
+          Guides
+        </a>
         <span className="text-zinc-600">/</span>
         <span className="font-semibold text-emerald-400" aria-current="page">
           {guide.title}

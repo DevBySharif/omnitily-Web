@@ -32,6 +32,11 @@ export interface GuideFaq {
   answer: string;
 }
 
+/** Shared title/description for the /guides index page (SPA + prerender). */
+export const GUIDES_INDEX_TITLE = 'Free Online Tool Guides | Omnitily';
+export const GUIDES_INDEX_DESCRIPTION =
+  'Step-by-step guides for Omnitily\u2019s free online tools: download TikTok videos and Instagram reels, convert video to audio, compress videos and images, and split or merge PDFs — no signup.';
+
 export interface Guide {
   slug: string;
   title: string; // <=60 chars, query-matched, natural English

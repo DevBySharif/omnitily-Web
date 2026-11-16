@@ -42,6 +42,7 @@ import { SeoManager } from './components/SeoManager';
 import { LegalPageView } from './components/LegalPageView';
 import { CategoryHubView } from './components/CategoryHubView';
 import { GuideView } from './components/GuideView';
+import { GuidesIndexView } from './components/GuidesIndexView';
 import { LEGAL_PAGES, type LegalPage, type LegalPageSlug } from './lib/legalContent';
 import { ABOUT_PAGE } from './lib/aboutContent';
 import { CATEGORY_HUBS } from './lib/categoryHubs';
@@ -54,6 +55,7 @@ function AppContent() {
   const [staticPage, setStaticPage] = useState<LegalPageSlug | 'about' | null>(null);
   const [hubSlug, setHubSlug] = useState<string | null>(null);
   const [guideSlug, setGuideSlug] = useState<string | null>(null);
+  const [guidesIndex, setGuidesIndex] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -78,6 +80,7 @@ function AppContent() {
         setActiveTool(null);
         setHubSlug(null);
         setGuideSlug(null);
+        setGuidesIndex(false);
         setStaticPage(staticMatch[1] as LegalPageSlug | 'about');
         return;
       }
@@ -88,7 +91,19 @@ function AppContent() {
         setActiveTool(null);
         setStaticPage(null);
         setGuideSlug(null);
+        setGuidesIndex(false);
         setHubSlug(hubMatch[1]);
+        return;
+      }
+      // Guides index route (/guides) resolves before the article lookup.
+      const guidesIndexMatch = path.match(/^\/guides\/?$/);
+      if (guidesIndexMatch) {
+        setRouteNotFound(false);
+        setActiveTool(null);
+        setStaticPage(null);
+        setHubSlug(null);
+        setGuideSlug(null);
+        setGuidesIndex(true);
         return;
       }
       // Guide article routes (/guides/<slug>) resolve against GUIDES; an
@@ -99,6 +114,7 @@ function AppContent() {
         setActiveTool(null);
         setStaticPage(null);
         setHubSlug(null);
+        setGuidesIndex(false);
         if (GUIDES.some((guide) => guide.slug === slug)) {
           setRouteNotFound(false);
           setGuideSlug(slug);
@@ -116,12 +132,14 @@ function AppContent() {
           setStaticPage(null);
           setHubSlug(null);
           setGuideSlug(null);
+          setGuidesIndex(false);
           setActiveTool(toolId);
         } else {
           setRouteNotFound(true);
           setStaticPage(null);
           setHubSlug(null);
           setGuideSlug(null);
+          setGuidesIndex(false);
           setActiveTool(null);
         }
       } else {
@@ -129,6 +147,7 @@ function AppContent() {
         setStaticPage(null);
         setHubSlug(null);
         setGuideSlug(null);
+        setGuidesIndex(false);
         setActiveTool(null);
       }
     };
@@ -145,6 +164,7 @@ function AppContent() {
       setStaticPage(null);
       setHubSlug(null);
       setGuideSlug(null);
+      setGuidesIndex(false);
       setActiveTool(toolId);
     } else {
       window.history.pushState(null, '', '/');
@@ -152,6 +172,7 @@ function AppContent() {
       setStaticPage(null);
       setHubSlug(null);
       setGuideSlug(null);
+      setGuidesIndex(false);
       setActiveTool(null);
     }
   };
@@ -162,6 +183,7 @@ function AppContent() {
     setActiveTool(null);
     setHubSlug(null);
     setGuideSlug(null);
+    setGuidesIndex(false);
     setStaticPage(page);
     window.scrollTo(0, 0);
   };
@@ -172,6 +194,7 @@ function AppContent() {
     setActiveTool(null);
     setStaticPage(null);
     setGuideSlug(null);
+    setGuidesIndex(false);
     setHubSlug(slug);
     window.scrollTo(0, 0);
   };
@@ -182,7 +205,19 @@ function AppContent() {
     setActiveTool(null);
     setStaticPage(null);
     setHubSlug(null);
+    setGuidesIndex(false);
     setGuideSlug(slug);
+    window.scrollTo(0, 0);
+  };
+
+  const navigateToGuidesIndex = () => {
+    window.history.pushState(null, '', '/guides');
+    setRouteNotFound(false);
+    setActiveTool(null);
+    setStaticPage(null);
+    setHubSlug(null);
+    setGuideSlug(null);
+    setGuidesIndex(true);
     window.scrollTo(0, 0);
   };
 
@@ -516,6 +551,7 @@ function AppContent() {
         staticPage={staticPage ?? undefined}
         hubSlug={hubSlug}
         guideSlug={guideSlug}
+        guidesIndex={guidesIndex}
       />
       
       {/* Universal Top Nav */}
@@ -580,6 +616,9 @@ function AppContent() {
         ) : activeHub ? (
           /* Category hub page (/tools/<slug>) */
           <CategoryHubView hub={activeHub} tools={activeHubTools} />
+        ) : guidesIndex ? (
+          /* Guides index page (/guides) */
+          <GuidesIndexView guides={GUIDES} />
         ) : activeGuide ? (
           /* Guide article (/guides/<slug>) */
           <GuideView guide={activeGuide} tools={activeGuideTools} />
@@ -1194,6 +1233,17 @@ function AppContent() {
             </div>
           </div>
           <div className="flex gap-4">
+            <a
+              href="/guides"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateToGuidesIndex();
+              }}
+              className="hover:text-white transition-colors"
+            >
+              Guides
+            </a>
+            <span>&bull;</span>
             <a
               href="/about"
               onClick={(e) => {

@@ -37,6 +37,7 @@ describe('Guides integration — GuideView', () => {
     expect(screen.getByText(guide.steps[0])).toBeInTheDocument();
     expect(screen.getByText(guide.faqs[0].question)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Guides' })).toHaveAttribute('href', '/guides');
     expect(screen.getByRole('link', { name: /Back to Omnitily/ })).toBeInTheDocument();
 
     for (const tool of guideTools(guide.slug)) {
@@ -81,12 +82,11 @@ describe('Guides integration — SeoManager guide branch', () => {
     expect(howTo.name).toBe(guide.title);
     expect((howTo.step as { text: string }[]).map((s) => s.text)).toEqual(guide.steps);
 
-    // No /guides index page exists, so the "Guides" breadcrumb crumb
-    // points at the homepage.
+    // The "Guides" breadcrumb crumb links to the /guides index page.
     const breadcrumb = scripts.find((s) => s['@type'] === 'BreadcrumbList')!;
     const items = breadcrumb.itemListElement as { position: number; name: string; item: string }[];
     expect(items).toHaveLength(3);
-    expect(items[1]).toEqual({ '@type': 'ListItem', position: 2, name: 'Guides', item: `${DOMAIN}/` });
+    expect(items[1]).toEqual({ '@type': 'ListItem', position: 2, name: 'Guides', item: `${DOMAIN}/guides` });
     expect(items[2].item).toBe(`${DOMAIN}/guides/${guide.slug}`);
   });
 });
@@ -102,6 +102,20 @@ describe('Guides integration — App routing', () => {
     expect(
       screen.getByRole('link', { name: /Smart Image Compressor/ }),
     ).toHaveAttribute('href', '/tools/image-compressor');
+  });
+
+  it('resolves /guides to the guides index page listing all 8 guides', async () => {
+    window.history.pushState({}, '', '/guides');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Guides' })).toBeInTheDocument();
+    for (const guide of GUIDES) {
+      expect(
+        screen.getByRole('link', {
+          name: new RegExp(guide.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        }),
+      ).toHaveAttribute('href', `/guides/${guide.slug}`);
+    }
   });
 
   it('404s an unknown guide slug', async () => {
@@ -143,14 +157,20 @@ describe('Guides integration — prerendered output', () => {
     expect((howTo.step as { text: string }[]).map((s) => s.text)).toEqual(guide.steps);
     const breadcrumb = schemas.find((s) => s['@type'] === 'BreadcrumbList')!;
     const items = breadcrumb.itemListElement as { name: string; item: string }[];
-    expect(items[1]).toEqual({ '@type': 'ListItem', position: 2, name: 'Guides', item: `${DOMAIN}/` });
+    expect(items[1]).toEqual({ '@type': 'ListItem', position: 2, name: 'Guides', item: `${DOMAIN}/guides` });
   });
 
-  it('the sitemap lists 122 URLs, including all 8 guide URLs (monthly, 0.7)', () => {
+  it('the sitemap lists 123 URLs, including all 8 guide URLs (monthly, 0.7) and the /guides index', () => {
     expect(existsSync('public/sitemap.xml')).toBe(true);
     const content = readFileSync('public/sitemap.xml', 'utf8');
     const urls = content.match(/<url>/g) || [];
-    expect(urls).toHaveLength(122);
+    expect(urls).toHaveLength(123);
+    const indexBlock = content.match(
+      new RegExp(`<url>\\s*<loc>${DOMAIN}/guides</loc>[\\s\\S]*?</url>`),
+    );
+    expect(indexBlock, '/guides index').not.toBeNull();
+    expect(indexBlock![0]).toContain('<changefreq>weekly</changefreq>');
+    expect(indexBlock![0]).toContain('<priority>0.7</priority>');
     for (const guide of GUIDES) {
       const block = content.match(
         new RegExp(`<url>\\s*<loc>${DOMAIN}/guides/${guide.slug}</loc>[\\s\\S]*?</url>`),

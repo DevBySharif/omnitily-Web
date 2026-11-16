@@ -4,7 +4,7 @@ import { LEGAL_PAGES, type LegalPageSlug } from '../lib/legalContent';
 import { ABOUT_PAGE } from '../lib/aboutContent';
 import { TOOL_SEO_TITLES } from '../lib/toolSeoTitles';
 import { CATEGORY_HUBS } from '../lib/categoryHubs';
-import { GUIDES } from '../lib/guides';
+import { GUIDES, GUIDES_INDEX_DESCRIPTION, GUIDES_INDEX_TITLE } from '../lib/guides';
 
 interface SeoManagerProps {
   toolId: string | null;
@@ -17,6 +17,7 @@ interface SeoManagerProps {
   staticPage?: LegalPageSlug | 'about';
   hubSlug?: string | null;
   guideSlug?: string | null;
+  guidesIndex?: boolean;
 }
 
 const DOMAIN = 'https://omnitily.vercel.app';
@@ -60,6 +61,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
   staticPage,
   hubSlug,
   guideSlug,
+  guidesIndex,
 }) => {
   useEffect(() => {
     // Clean up previous JSON-LD script tags
@@ -322,6 +324,86 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
         breadcrumbScript.text = JSON.stringify(breadcrumbSchema);
         document.head.appendChild(breadcrumbScript);
       }
+    } else if (guidesIndex) {
+      // Guides index route (/guides): SPA navigation lands here, while the
+      // prerendered index HTML carries the same meta for crawlers.
+      const canonical = `${DOMAIN}/guides`;
+      const title = GUIDES_INDEX_TITLE;
+      const desc = GUIDES_INDEX_DESCRIPTION;
+
+      document.title = title;
+      setCanonicalUrl(canonical);
+      setMetaTag('name', 'description', desc);
+      setMetaTag('name', 'robots', 'index, follow');
+      setMetaTag('name', 'keywords', 'how-to guides, free online tools, omnitily');
+
+      setMetaTag('property', 'og:site_name', 'Omnitily');
+      setMetaTag('property', 'og:type', 'website');
+      setMetaTag('property', 'og:title', title);
+      setMetaTag('property', 'og:description', desc);
+      setMetaTag('property', 'og:url', canonical);
+      setOgImageTags();
+
+      setMetaTag('name', 'twitter:card', 'summary_large_image');
+      setMetaTag('name', 'twitter:title', title);
+      setMetaTag('name', 'twitter:description', desc);
+
+      const collectionSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'CollectionPage',
+        name: 'Guides',
+        url: canonical,
+        description: desc,
+      };
+
+      const itemListSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        name: 'Guides',
+        itemListElement: GUIDES.map((guide, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          name: guide.title,
+          url: `${DOMAIN}/guides/${guide.slug}`,
+        })),
+      };
+
+      const breadcrumbSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: 'Home',
+            item: `${DOMAIN}/`,
+          },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: 'Guides',
+            item: canonical,
+          },
+        ],
+      };
+
+      const collectionScript = document.createElement('script');
+      collectionScript.setAttribute('data-seo', 'omnitily-jsonld');
+      collectionScript.type = 'application/ld+json';
+      collectionScript.text = JSON.stringify(collectionSchema);
+      document.head.appendChild(collectionScript);
+
+      const itemListScript = document.createElement('script');
+      itemListScript.setAttribute('data-seo', 'omnitily-jsonld');
+      itemListScript.type = 'application/ld+json';
+      itemListScript.text = JSON.stringify(itemListSchema);
+      document.head.appendChild(itemListScript);
+
+      const breadcrumbScript = document.createElement('script');
+      breadcrumbScript.setAttribute('data-seo', 'omnitily-jsonld');
+      breadcrumbScript.type = 'application/ld+json';
+      breadcrumbScript.text = JSON.stringify(breadcrumbSchema);
+      document.head.appendChild(breadcrumbScript);
     } else if (guideSlug) {
       // Guide article route (/guides/<slug>): SPA navigation lands here, while
       // the prerendered guide HTML carries the same meta for crawlers.
@@ -383,12 +465,10 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
               item: `${DOMAIN}/`,
             },
             {
-              // No /guides index page exists, so "Guides" points at the
-              // homepage; see scripts/prerender.ts (guides loop).
               '@type': 'ListItem',
               position: 2,
               name: 'Guides',
-              item: `${DOMAIN}/`,
+              item: `${DOMAIN}/guides`,
             },
             {
               '@type': 'ListItem',
@@ -490,7 +570,7 @@ export const SeoManager: React.FC<SeoManagerProps> = ({
       webAppScript.text = JSON.stringify(webAppSchema);
       document.head.appendChild(webAppScript);
     }
-  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound, staticPage, hubSlug, guideSlug]);
+  }, [toolId, toolTitle, toolDescription, category, isIndexable, processingType, routeNotFound, staticPage, hubSlug, guideSlug, guidesIndex]);
 
   return null;
 };

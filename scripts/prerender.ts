@@ -10,7 +10,7 @@ import { TOOL_CONTENT_HEALTH_FUN_TEXT } from '../src/lib/toolContent-health-fun-
 import { TOOL_SEO_TITLES } from '../src/lib/toolSeoTitles.ts';
 import { CATEGORY_HUBS } from '../src/lib/categoryHubs.ts';
 import { ABOUT_PAGE, type AboutPage } from '../src/lib/aboutContent.ts';
-import { GUIDES } from '../src/lib/guides.ts';
+import { GUIDES, GUIDES_INDEX_DESCRIPTION, GUIDES_INDEX_TITLE } from '../src/lib/guides.ts';
 
 // Merged FAQ / HowTo / features content for all 101 functional tools.
 const TOOL_CONTENT: Record<string, ToolContent> = {
@@ -611,8 +611,8 @@ for (const hub of CATEGORY_HUBS) {
 
 // 2c. Prerender Guide Articles (/guides/<slug>)
 // Same content as the SPA's GuideView, so crawlers see the full article
-// without JavaScript. There is no /guides index page, so the breadcrumb's
-// "Guides" crumb (position 2) points at the homepage, not a list page.
+// without JavaScript. The breadcrumb's "Guides" crumb (position 2) links
+// to the /guides index page (section 2d).
 let guideCount = 0;
 for (const guide of GUIDES) {
   const canonical = `${DOMAIN}/guides/${guide.slug}`;
@@ -659,7 +659,7 @@ for (const guide of GUIDES) {
         '@type': 'ListItem',
         position: 2,
         name: 'Guides',
-        item: `${DOMAIN}/`,
+        item: `${DOMAIN}/guides`,
       },
       {
         '@type': 'ListItem',
@@ -695,7 +695,7 @@ for (const guide of GUIDES) {
     <nav aria-label="Breadcrumb" class="mb-6 flex items-center gap-1.5 text-xs text-zinc-400">
       <a href="/" class="font-medium hover:text-emerald-400">Home</a>
       <span class="text-zinc-600">/</span>
-      <span class="font-medium text-zinc-400">Guides</span>
+      <a href="/guides" class="font-medium hover:text-emerald-400">Guides</a>
       <span class="text-zinc-600">/</span>
       <span class="font-semibold text-emerald-400" aria-current="page">${escapeHtml(guide.title)}</span>
     </nav>
@@ -736,6 +736,96 @@ for (const guide of GUIDES) {
   await writeFile(join(guideDir, 'index.html'), guideHtml, 'utf8');
   guideCount++;
 }
+
+// 2d. Prerender the Guides Index Page (/guides)
+// Same content as the SPA's GuidesIndexView, so crawlers see the full list
+// without JavaScript.
+const guidesIndexCanonical = `${DOMAIN}/guides`;
+
+const guidesIndexCollectionSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  name: 'Guides',
+  url: guidesIndexCanonical,
+  description: GUIDES_INDEX_DESCRIPTION,
+};
+
+const guidesIndexItemListSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'ItemList',
+  name: 'Guides',
+  itemListElement: GUIDES.map((guide, index) => ({
+    '@type': 'ListItem',
+    position: index + 1,
+    name: guide.title,
+    url: `${DOMAIN}/guides/${guide.slug}`,
+  })),
+};
+
+const guidesIndexBreadcrumbSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'Home',
+      item: `${DOMAIN}/`,
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: 'Guides',
+      item: guidesIndexCanonical,
+    },
+  ],
+};
+
+const guidesIndexHead = buildMetaAndHead({
+  title: GUIDES_INDEX_TITLE,
+  description: GUIDES_INDEX_DESCRIPTION,
+  canonical: guidesIndexCanonical,
+  robots: 'index, follow',
+  keywords: 'how-to guides, free online tools, omnitily',
+  jsonLdScripts: [guidesIndexCollectionSchema, guidesIndexItemListSchema, guidesIndexBreadcrumbSchema],
+});
+
+const guidesIndexGrid = GUIDES.map((guide) => `
+  <a href="/guides/${guide.slug}" class="tool-card border border-zinc-800 bg-[#111114] rounded-xl p-5 shadow-xl hover:border-emerald-500/30 flex flex-col justify-between gap-4">
+    <div>
+      <h3 class="font-sans font-bold text-base text-white tracking-tight">${escapeHtml(guide.title)}</h3>
+      <p class="text-zinc-400 text-xs mt-1.5 leading-relaxed">${escapeHtml(guide.description)}</p>
+    </div>
+    <div class="text-[10px] text-emerald-400 font-mono font-bold">Read the guide &rarr;</div>
+  </a>
+`).join('');
+
+const guidesIndexBody = `
+<div class="min-h-screen bg-[#07080a] text-zinc-100 font-sans selection:bg-emerald-500/30">
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    <nav aria-label="Breadcrumb" class="mb-6 flex items-center gap-1.5 text-xs text-zinc-400">
+      <a href="/" class="font-medium hover:text-emerald-400">Home</a>
+      <span class="text-zinc-600">/</span>
+      <span class="font-semibold text-emerald-400" aria-current="page">Guides</span>
+    </nav>
+    <h1 class="text-3xl font-extrabold tracking-tight text-white">Guides</h1>
+    <p class="text-zinc-400 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">Step-by-step how-to guides for Omnitily&rsquo;s free online tools. Each guide walks through a real task with the tool that does it — download, convert, compress, and edit files in your browser, no signup.</p>
+    <section aria-labelledby="guides-index-heading" class="mt-10">
+      <h2 id="guides-index-heading" class="text-sm font-bold text-white uppercase tracking-wider font-mono mb-4">All guides (${GUIDES.length})</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        ${guidesIndexGrid}
+      </div>
+    </section>
+    <div class="mt-10 border-t border-zinc-800/60 pt-6">
+      <a href="/" class="text-xs font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300">&larr; Back to Omnitily</a>
+    </div>
+  </main>
+</div>
+`;
+
+const guidesIndexHtml = injectHeadAndBody(template, guidesIndexHead, guidesIndexBody);
+await mkdir(join(distDir, 'guides'), { recursive: true });
+await writeFile(join(distDir, 'guides', 'index.html'), guidesIndexHtml, 'utf8');
 
 // 3. Generate noindex raw HTML for known hidden routes.
 // These files are intentionally excluded from sitemap/indexability while
@@ -806,4 +896,4 @@ const notFoundBody = `
 `;
 await writeFile(join(distDir, '404.html'), injectHeadAndBody(template, notFoundHead, notFoundBody), 'utf8');
 
-console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${aboutCount} about page, ${hubCount} category hub pages, ${guideCount} guide pages, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);
+console.log(`Prerendered Homepage, ${legalCount} static legal pages, ${aboutCount} about page, ${hubCount} category hub pages, ${guideCount} guide pages, 1 guides index page, ${prerenderCount} indexable tool pages, ${hiddenCount} noindex hidden tool pages, and 404.html in dist/!`);
