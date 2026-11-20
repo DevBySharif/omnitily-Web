@@ -1060,6 +1060,57 @@ export function computeExpectedOutputDuration(args: {
   return (end - start) / rate;
 }
 
+/**
+ * D1: the re-encode draw loop's stop decision. It must be true when the
+ * video has ended even if currentTime never crossed the near-end threshold
+ * inside a frame callback — requestVideoFrameCallback stops firing at
+ * end-of-stream, so a check that only runs there can never fire again and
+ * the recorder runs until the (range + 30)s wall timeout. The same
+ * decision is therefore also evaluated from the video `ended` event and a
+ * `timeupdate` poll in reencodeVideo.
+ */
+export function hasReachedReencodeEnd(currentTimeSeconds: number, endTimeSeconds: number, ended: boolean): boolean {
+  return ended || currentTimeSeconds >= endTimeSeconds - 0.02;
+}
+
+/**
+ * D1: measures the recorded output's duration from the OUTPUT, not from
+ * wall time. Each frame the draw loop draws carries the source video's
+ * currentTime; the span of drawn frames, divided by the playback rate, is
+ * the length of the content that actually reached the recorder. Returns
+ * null when no frame was ever drawn.
+ */
+export function measureRecordedDurationSeconds(args: {
+  lastFrameVideoTimeSeconds: number | null;
+  startTimeSeconds: number;
+  playbackRate: number;
+}): number | null {
+  if (args.lastFrameVideoTimeSeconds === null) return null;
+  const measured = (args.lastFrameVideoTimeSeconds - args.startTimeSeconds) / args.playbackRate;
+  return Number.isFinite(measured) ? Math.max(0, measured) : null;
+}
+
+/**
+ * D1: resolves the duration reported as the verified output duration.
+ * Prefers finite container metadata, then the frame-measured duration,
+ * then the requested range. Wall time is deliberately NOT an input: a
+ * recording that ran into the wall timeout must never surface the timeout
+ * length (e.g. 32.0s for a 2s clip) as the output duration.
+ */
+export function resolveOutputDurationSeconds(args: {
+  metadataDurationSeconds: number | null;
+  measuredDurationSeconds: number | null;
+  expectedDurationSeconds: number;
+}): number {
+  if (args.metadataDurationSeconds !== null && Number.isFinite(args.metadataDurationSeconds)) {
+    return args.metadataDurationSeconds;
+  }
+  if (args.measuredDurationSeconds !== null && Number.isFinite(args.measuredDurationSeconds)) {
+    return args.measuredDurationSeconds;
+  }
+  return args.expectedDurationSeconds;
+}
+
 export interface WatermarkLayout {
   x: number;
   y: number;
@@ -1197,10 +1248,13 @@ export interface ReencodeVideoResult {
   height: number;
   /** Expected length from (range / rate). */
   expectedDurationSeconds: number;
-  /** Wall-clock seconds actually recorded. */
+  /** Wall-clock seconds actually recorded. Diagnostic only — never shown
+   * as the output duration (D1: the wall timeout made it 32s for a 2s clip). */
   recordedWallSeconds: number;
-  /** Output metadata duration, or null when the browser wrote no finite duration. */
-  outputDurationSeconds: number | null;
+  /** Verified output duration in seconds: container metadata when the
+   * browser wrote a finite one, else measured from the last recorded
+   * frame's video time, else the requested range. Never wall time. */
+  outputDurationSeconds: number;
   /** Whether the recorder input actually carried an audio track. */
   hasAudio: boolean;
   /** Watermark pixel-diff check result (null when no watermark requested). */
@@ -1452,12 +1506,18 @@ export async function reencodeVideo(options: ReencodeVideoOptions): Promise<Reen
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
+    // D1: the video time of the last frame actually drawn. The draw loop
+    // below is the only writer; it is what the reported output duration is
+    // measured from (never wall time).
+    let lastFrameVideoTimeSeconds: number | null = null;
+
     const drawLoop = () => {
       if (options.signal?.aborted || recorder.state === 'inactive') return;
       drawFrame(ctx, video, { canvasWidth: width, canvasHeight: height, rotation, watermark });
+      lastFrameVideoTimeSeconds = video.currentTime;
       const elapsed = (video.currentTime - startTime) / Math.max(0.2, endTime - startTime);
       options.onProgress?.(Math.min(1, Math.max(0, elapsed)));
-      if (video.currentTime >= endTime - 0.02 || video.ended) {
+      if (hasReachedReencodeEnd(video.currentTime, endTime, video.ended)) {
         stopRecording();
         return;
       }
@@ -1468,6 +1528,33 @@ export async function reencodeVideo(options: ReencodeVideoOptions): Promise<Reen
         frameHandle = window.requestAnimationFrame(() => drawLoop());
       }
     };
+
+    // D1: requestVideoFrameCallback stops firing at end-of-stream, so the
+    // stop check inside drawLoop can never run again once the last frame
+    // has been presented. Stop from two paths that do not depend on it:
+    // the video `ended` event (fires at end-of-stream even when no further
+    // frame callback arrives) and a `timeupdate` poll (fires during
+    // playback independently of frame presentation). The wall timeout
+    // above stays only as a safety net; it must no longer be the normal
+    // path that stops the recorder.
+    const onEnded = () => {
+      // Draw the true final frame if the frame loop never presented it,
+      // so the last drawn frame — and the measured duration — include it.
+      if (recorder.state !== 'inactive' && !options.signal?.aborted) {
+        try {
+          drawFrame(ctx, video, { canvasWidth: width, canvasHeight: height, rotation, watermark });
+          lastFrameVideoTimeSeconds = video.currentTime;
+        } catch { /* ignore — stopping matters more than the final frame */ }
+      }
+      stopRecording();
+    };
+    const onTimeUpdate = () => {
+      if (hasReachedReencodeEnd(video.currentTime, endTime, video.ended)) {
+        stopRecording();
+      }
+    };
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('timeupdate', onTimeUpdate);
 
     try {
       recorder.start(250);
@@ -1508,18 +1595,30 @@ export async function reencodeVideo(options: ReencodeVideoOptions): Promise<Reen
         endTime,
         playbackRate,
       });
-      let outputDurationSeconds: number | null = null;
-      if (Number.isFinite(meta.duration) && meta.duration > 0) {
-        outputDurationSeconds = meta.duration;
-        const tolerance = Math.max(0.75, expectedDurationSeconds * 0.2);
-        if (Math.abs(meta.duration - expectedDurationSeconds) > tolerance) {
-          throw new Error(
-            `Output duration is ${meta.duration.toFixed(1)}s but ${expectedDurationSeconds.toFixed(1)}s was expected — the output failed verification.`
-          );
-        }
+      const metadataDurationSeconds =
+        Number.isFinite(meta.duration) && meta.duration > 0 ? meta.duration : null;
+      const measuredDurationSeconds = measureRecordedDurationSeconds({
+        lastFrameVideoTimeSeconds,
+        startTimeSeconds: startTime,
+        playbackRate,
+      });
+      // The container metadata, when present, is checked against the
+      // expected length as before. When it is absent (MediaRecorder WebM
+      // carries no duration), the frame-measured duration is checked the
+      // same way instead — the "verified duration" claim stays proven
+      // either way, and a truncated recording still fails loudly.
+      const tolerance = Math.max(0.75, expectedDurationSeconds * 0.2);
+      const durationToCheck = metadataDurationSeconds ?? measuredDurationSeconds;
+      if (durationToCheck !== null && Math.abs(durationToCheck - expectedDurationSeconds) > tolerance) {
+        throw new Error(
+          `Output duration is ${durationToCheck.toFixed(1)}s but ${expectedDurationSeconds.toFixed(1)}s was expected — the output failed verification.`
+        );
       }
-      // If the browser wrote no finite duration, the verified wall-clock
-      // recording length stands as the duration evidence (reported, not hidden).
+      const outputDurationSeconds = resolveOutputDurationSeconds({
+        metadataDurationSeconds,
+        measuredDurationSeconds,
+        expectedDurationSeconds,
+      });
       return {
         blob,
         mimeType,
@@ -1539,6 +1638,8 @@ export async function reencodeVideo(options: ReencodeVideoOptions): Promise<Reen
         try { rvfc.call(video, frameHandle); } catch { /* ignore */ }
       }
       options.signal?.removeEventListener('abort', onAbort);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('timeupdate', onTimeUpdate);
       try { video.pause(); } catch { /* ignore */ }
       try { video.removeAttribute('src'); video.load(); } catch { /* ignore */ }
       combined.getTracks().forEach((t) => { try { t.stop(); } catch { /* ignore */ } });

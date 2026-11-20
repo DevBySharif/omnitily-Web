@@ -139,9 +139,10 @@ export default function GenericUtilityWorkspace({ tool, onBack, initialFile }: G
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
 
   const describeVideoResult = (result: ReencodeVideoResult, detail: string, audioNote?: string) => {
-    const durationLine = result.outputDurationSeconds !== null
-      ? `Duration: ${result.outputDurationSeconds.toFixed(1)}s`
-      : `Duration (recorded): ${result.recordedWallSeconds.toFixed(1)}s — this browser did not write duration metadata into the WebM file, so the recorded length was verified instead.`;
+    // D1: outputDurationSeconds is the verified output duration (container
+    // metadata, else measured from the recorded frames, else the requested
+    // range) — never wall time.
+    const durationLine = `Duration: ${result.outputDurationSeconds.toFixed(1)}s`;
     const audioLine = audioNote ?? (result.hasAudio
       ? 'Audio: kept (source audio track re-encoded).'
       : 'Audio: none in output — no audio track was captured from the source in this browser.');

@@ -217,7 +217,10 @@ export default function VideoSplitter({ onBack, initialFile }: VideoSplitterProp
       setTrimmedVideoUrl(url);
       setSplitStatus('completed');
       setSplitProgress(100);
-      const verifiedDuration = result.outputDurationSeconds ?? result.recordedWallSeconds;
+      // D1: outputDurationSeconds is the verified output duration
+      // (container metadata, else measured from the recorded frames, else
+      // the requested range) — never wall time.
+      const verifiedDuration = result.outputDurationSeconds;
       addLog(`Verified WebM output: ${result.width}x${result.height}, ${verifiedDuration.toFixed(1)}s${result.hasAudio ? ', audio kept' : ', no audio track captured'}.`);
       addLog('Trimmed video package created successfully!');
       confetti({ particleCount: 100, spread: 70 });
