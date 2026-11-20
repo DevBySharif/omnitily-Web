@@ -27,6 +27,11 @@ describe('Vercel deployment contract', () => {
       const headers = Object.fromEntries(rule.headers.map(({ key, value }) => [key.toLowerCase(), value]));
       expect(headers['content-security-policy']).toContain("script-src 'self'");
       expect(headers['content-security-policy']).toContain("worker-src 'self' blob:");
+      // Currency converter fetches live rates from Frankfurter; the CSP must
+      // allow the current host (api.frankfurter.dev/v1) — the old
+      // api.frankfurter.app host 301-redirects without CORS headers.
+      expect(headers['content-security-policy']).toContain('connect-src \'self\' https://api.frankfurter.dev');
+      expect(headers['content-security-policy']).not.toContain('api.frankfurter.app');
       expect(headers['content-security-policy']).not.toMatch(/script-src[^;]*unsafe-inline|unsafe-eval/);
       expect(headers['strict-transport-security']).toContain('max-age=31536000');
       expect(headers['cache-control']).toContain('must-revalidate');

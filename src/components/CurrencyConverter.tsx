@@ -13,7 +13,7 @@ import { useToast } from './Toast';
 /**
  * Currency converter — live rates only.
  *
- * Rates come from Frankfurter (https://api.frankfurter.app/latest), a free,
+ * Rates come from Frankfurter (https://api.frankfurter.dev/v1/latest), a free,
  * keyless API that republishes the European Central Bank reference rates.
  * There are NO fallback or hard-coded rates anywhere in this file: the old
  * static table (0.92 EUR, 0.79 GBP, 158.42 JPY, 1.36 CAD per USD) was
@@ -22,13 +22,13 @@ import { useToast } from './Toast';
  *
  * Integration note for the coordinator: the site's Content-Security-Policy
  * currently sets `connect-src 'self'` (vercel.json), which blocks a
- * cross-origin fetch to api.frankfurter.app from the live site. The fetch
+ * cross-origin fetch to api.frankfurter.dev from the live site. The fetch
  * works in this component's tests (mocked) and in a plain browser, but the
- * live deployment needs `https://api.frankfurter.app` added to `connect-src`
+ * live deployment needs `https://api.frankfurter.dev` added to `connect-src`
  * before this tool can convert on omnitily.vercel.app.
  */
 
-export const FRANKFURTER_URL = 'https://api.frankfurter.app/latest';
+export const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest';
 
 /** Currencies Frankfurter serves (ECB reference-rate set, plus a few majors). */
 export const SUPPORTED_CURRENCIES: { code: string; name: string }[] = [
@@ -344,7 +344,7 @@ export default function CurrencyConverter({ onBack }: { onBack: () => void }) {
 
           <div className="bg-[#050505] border border-[#1a1a1a] rounded-xl p-5 text-xs text-gray-400 font-medium leading-relaxed">
             <span className="text-[10px] font-bold text-[#10b981] uppercase tracking-widest block mb-2 font-mono">About These Rates</span>
-            Rates are fetched live from api.frankfurter.app, which republishes the European Central Bank daily reference rates. Indicative rates for information only — your bank or card provider applies its own rate and fees. This tool stores no rates and never estimates one.
+            Rates are fetched live from api.frankfurter.dev, which republishes the European Central Bank daily reference rates. Indicative rates for information only — your bank or card provider applies its own rate and fees. This tool stores no rates and never estimates one.
           </div>
 
           {converted !== null && (

@@ -666,7 +666,7 @@ export const TOOL_CONTENT_DEVELOPER_MATH: Record<string, ToolContent> = {
       {
         question: 'Where do the exchange rates come from?',
         answer:
-          'Live rates from the Frankfurter API (api.frankfurter.app), fetched when you convert. The tool never uses stored or fallback rates.',
+          'Live rates from the Frankfurter API (api.frankfurter.dev), fetched when you convert. The tool never uses stored or fallback rates.',
       },
       {
         question: 'Which currencies can I convert between?',

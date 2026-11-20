@@ -6,7 +6,7 @@
 // with zlib, synthetic audio). Live-network paths are mocked: the sandbox
 // has no external network, so the Frankfurter fetch is tested with a stub
 // fetch and the Playwright run mocks the endpoint too — live-rate
-// verification against the real api.frankfurter.app must happen at
+// verification against the real api.frankfurter.dev must happen at
 // integration on the live site (see checks/wave5b-disabled.md).
 import { deflateRawSync } from 'node:zlib';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 // itself is not under test.
 vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
 import CurrencyConverter, {
+  FRANKFURTER_URL,
   buildRatesUrl,
   convertAmount,
   fetchLiveRates,
@@ -56,11 +57,23 @@ describe('currency-converter', () => {
   const okFetch = () =>
     vi.fn(async () => ({ ok: true, status: 200, json: async () => mockRates }) as Response);
 
+  it('points at the live Frankfurter host (api.frankfurter.dev/v1) — the old api.frankfurter.app host 301-redirects without CORS headers, so a browser fetch dies before following it', () => {
+    expect(FRANKFURTER_URL).toBe('https://api.frankfurter.dev/v1/latest');
+  });
+
   it('builds the Frankfurter URL for a base + targets', () => {
     expect(buildRatesUrl('USD', ['EUR', 'GBP'])).toBe(
-      'https://api.frankfurter.app/latest?from=USD&to=EUR%2CGBP'
+      'https://api.frankfurter.dev/v1/latest?from=USD&to=EUR%2CGBP'
     );
-    expect(buildRatesUrl('EUR', ['EUR'])).toBe('https://api.frankfurter.app/latest?from=EUR');
+    expect(buildRatesUrl('EUR', ['EUR'])).toBe('https://api.frankfurter.dev/v1/latest?from=EUR');
+  });
+
+  it('fetches live rates from the new host URL', async () => {
+    const fetchImpl = okFetch();
+    await fetchLiveRates('USD', ['EUR'], fetchImpl as unknown as typeof fetch);
+    const calls = (fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][0])).toMatch(/^https:\/\/api\.frankfurter\.dev\/v1\/latest\?/);
   });
 
   it('fetches live rates and returns the parsed payload', async () => {
