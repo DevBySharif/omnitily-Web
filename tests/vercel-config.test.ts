@@ -38,4 +38,31 @@ describe('Vercel deployment contract', () => {
     }
     expect(Object.fromEntries(assets.headers.map(({ key, value }) => [key.toLowerCase(), value]))['cache-control']).toContain('immutable');
   });
+
+  it('lets GTM + GA4 load while keeping the lockdown directives', () => {
+    const root = config.headers.find((rule) => rule.source === '/')!;
+    const tools = config.headers.find((rule) => rule.source === '/tools/(.*)')!;
+    for (const rule of [root, tools]) {
+      const headers = Object.fromEntries(rule.headers.map(({ key, value }) => [key.toLowerCase(), value]));
+      const csp = headers['content-security-policy'];
+      // gtm.js and gtag.js both load from www.googletagmanager.com.
+      expect(csp).toContain("script-src 'self' https://www.googletagmanager.com");
+      // GA4 collect beacons go to google-analytics.com (incl. the regional host).
+      expect(csp).toContain('https://www.google-analytics.com');
+      expect(csp).toContain('https://region1.google-analytics.com');
+      // The GTM noscript iframe (ns.html) needs frame-src; without it the
+      // iframe falls back to default-src 'self' and is blocked.
+      expect(csp).toContain('frame-src https://www.googletagmanager.com');
+      // GA4 may also send beacons as image pixels.
+      expect(csp).toContain('https://www.google-analytics.com');
+      // The currency converter's Frankfurter allowance must survive.
+      expect(csp).toContain('https://api.frankfurter.dev');
+      // Lockdown stays: no wildcards, no eval, no object embeds, no framing.
+      expect(csp).not.toContain('*');
+      expect(csp).not.toMatch(/script-src[^;]*unsafe-eval/);
+      expect(csp).toContain("object-src 'none'");
+      expect(csp).toContain("base-uri 'self'");
+      expect(csp).toContain("frame-ancestors 'none'");
+    }
+  });
 });
